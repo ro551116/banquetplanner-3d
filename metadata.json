@@ -1,0 +1,5 @@
+{
+  "name": "BanquetPlanner 3D",
+  "description": "A 3D Banquet Hall visualization tool featuring drag-and-drop editing, AI-assisted layout generation, and immersive preview modes.",
+  "requestFramePermissions": []
+}
