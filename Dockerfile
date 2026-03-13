@@ -13,5 +13,7 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/server ./server
 COPY --from=build /app/package*.json ./
 RUN npm ci --omit=dev
+ENV DATA_DIR=/data
+VOLUME ["/data"]
 EXPOSE 3000
 CMD ["npx", "tsx", "server/index.ts"]

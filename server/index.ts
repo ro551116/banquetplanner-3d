@@ -1,30 +1,35 @@
 import express from 'express';
-import pg from 'pg';
+import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../data');
+const SCENES_DIR = path.join(DATA_DIR, 'scenes');
 
-// --- Database ---
-const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: false,
-});
+// Ensure data directory exists
+fs.mkdirSync(SCENES_DIR, { recursive: true });
 
-async function initDB() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS scenes (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      name TEXT NOT NULL DEFAULT 'Untitled',
-      data JSONB NOT NULL DEFAULT '{}',
-      thumbnail TEXT,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-  console.log('DB initialized');
+interface SceneFile {
+  id: string;
+  name: string;
+  data: any;
+  thumbnail?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+function readScene(id: string): SceneFile | null {
+  const filePath = path.join(SCENES_DIR, `${id}.json`);
+  if (!fs.existsSync(filePath)) return null;
+  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+}
+
+function writeScene(scene: SceneFile) {
+  fs.writeFileSync(path.join(SCENES_DIR, `${scene.id}.json`), JSON.stringify(scene));
 }
 
 // --- Middleware ---
@@ -33,12 +38,15 @@ app.use(express.json({ limit: '10mb' }));
 // --- API Routes ---
 
 // List all scenes
-app.get('/api/scenes', async (_req, res) => {
+app.get('/api/scenes', (_req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT id, name, thumbnail, created_at, updated_at FROM scenes ORDER BY updated_at DESC`
-    );
-    res.json(result.rows);
+    const files = fs.readdirSync(SCENES_DIR).filter(f => f.endsWith('.json'));
+    const scenes = files.map(f => {
+      const scene: SceneFile = JSON.parse(fs.readFileSync(path.join(SCENES_DIR, f), 'utf-8'));
+      return { id: scene.id, name: scene.name, thumbnail: scene.thumbnail || null, created_at: scene.created_at, updated_at: scene.updated_at };
+    });
+    scenes.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+    res.json(scenes);
   } catch (err) {
     console.error('List scenes error:', err);
     res.status(500).json({ error: 'Failed to list scenes' });
@@ -46,28 +54,26 @@ app.get('/api/scenes', async (_req, res) => {
 });
 
 // Get one scene
-app.get('/api/scenes/:id', async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT * FROM scenes WHERE id = $1`, [req.params.id]
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('Get scene error:', err);
-    res.status(500).json({ error: 'Failed to get scene' });
-  }
+app.get('/api/scenes/:id', (req, res) => {
+  const scene = readScene(req.params.id);
+  if (!scene) return res.status(404).json({ error: 'Not found' });
+  res.json(scene);
 });
 
 // Create scene
-app.post('/api/scenes', async (req, res) => {
+app.post('/api/scenes', (req, res) => {
   try {
-    const { name, data } = req.body;
-    const result = await pool.query(
-      `INSERT INTO scenes (name, data) VALUES ($1, $2) RETURNING id, name, created_at, updated_at`,
-      [name || 'Untitled', data || {}]
-    );
-    res.status(201).json(result.rows[0]);
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const scene: SceneFile = {
+      id,
+      name: req.body.name || 'Untitled',
+      data: req.body.data || {},
+      created_at: now,
+      updated_at: now,
+    };
+    writeScene(scene);
+    res.status(201).json({ id: scene.id, name: scene.name, created_at: scene.created_at, updated_at: scene.updated_at });
   } catch (err) {
     console.error('Create scene error:', err);
     res.status(500).json({ error: 'Failed to create scene' });
@@ -75,25 +81,16 @@ app.post('/api/scenes', async (req, res) => {
 });
 
 // Update scene (auto-save)
-app.put('/api/scenes/:id', async (req, res) => {
+app.put('/api/scenes/:id', (req, res) => {
   try {
-    const { name, data, thumbnail } = req.body;
-    const sets: string[] = [];
-    const vals: any[] = [];
-    let idx = 1;
-
-    if (name !== undefined) { sets.push(`name = $${idx++}`); vals.push(name); }
-    if (data !== undefined) { sets.push(`data = $${idx++}`); vals.push(data); }
-    if (thumbnail !== undefined) { sets.push(`thumbnail = $${idx++}`); vals.push(thumbnail); }
-    sets.push(`updated_at = NOW()`);
-
-    vals.push(req.params.id);
-    const result = await pool.query(
-      `UPDATE scenes SET ${sets.join(', ')} WHERE id = $${idx} RETURNING id, name, updated_at`,
-      vals
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
-    res.json(result.rows[0]);
+    const scene = readScene(req.params.id);
+    if (!scene) return res.status(404).json({ error: 'Not found' });
+    if (req.body.name !== undefined) scene.name = req.body.name;
+    if (req.body.data !== undefined) scene.data = req.body.data;
+    if (req.body.thumbnail !== undefined) scene.thumbnail = req.body.thumbnail;
+    scene.updated_at = new Date().toISOString();
+    writeScene(scene);
+    res.json({ id: scene.id, name: scene.name, updated_at: scene.updated_at });
   } catch (err) {
     console.error('Update scene error:', err);
     res.status(500).json({ error: 'Failed to update scene' });
@@ -101,17 +98,11 @@ app.put('/api/scenes/:id', async (req, res) => {
 });
 
 // Delete scene
-app.delete('/api/scenes/:id', async (req, res) => {
-  try {
-    const result = await pool.query(
-      `DELETE FROM scenes WHERE id = $1 RETURNING id`, [req.params.id]
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
-    res.json({ deleted: true });
-  } catch (err) {
-    console.error('Delete scene error:', err);
-    res.status(500).json({ error: 'Failed to delete scene' });
-  }
+app.delete('/api/scenes/:id', (req, res) => {
+  const filePath = path.join(SCENES_DIR, `${req.params.id}.json`);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
+  fs.unlinkSync(filePath);
+  res.json({ deleted: true });
 });
 
 // --- Static files (production) ---
@@ -121,11 +112,6 @@ app.get('{*path}', (_req, res) => {
 });
 
 // --- Start ---
-initDB().then(() => {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-}).catch(err => {
-  console.error('Failed to init DB:', err);
-  process.exit(1);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}, data at ${DATA_DIR}`);
 });
