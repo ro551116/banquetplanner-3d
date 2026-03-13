@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { ObjectType, StairConfig, TableCloth } from '../types';
 import { TABLE_CLOTH_MATERIALS } from '../constants';
-import { Html, Edges } from '@react-three/drei';
+import { Html, Edges, Outlines } from '@react-three/drei';
 import { ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 
@@ -28,6 +28,11 @@ interface BanquetModelProps {
 
 const Highlight = ({ color = "#3b82f6" }: { color?: string }) => (
   <Edges scale={1.02} threshold={15} color={color} />
+);
+
+// SketchUp-style edge outline for all objects
+const EdgeOutline = ({ thickness = 2 }: { thickness?: number }) => (
+  <Outlines thickness={thickness} color="#555555" screenspace angle={0.2} />
 );
 
 const Label = ({ text }: { text: string }) => (
@@ -94,19 +99,19 @@ const TripodBase = () => {
       {/* Central Pole */}
       <mesh position={[0, 0.6, 0]} castShadow>
         <cylinderGeometry args={[0.02, 0.02, 1.2]} />
-        <meshStandardMaterial color="#3a3a3f" metalness={0.6} roughness={0.35} />
+        <meshStandardMaterial color="#707078" metalness={0.6} roughness={0.35} />
       </mesh>
 
       {/* Upper Hub (Leg Junction) */}
       <mesh position={[0, hubHeight, 0]}>
          <cylinderGeometry args={[0.04, 0.04, 0.06]} />
-         <meshStandardMaterial color="#2a2a30" metalness={0.7} roughness={0.3} />
+         <meshStandardMaterial color="#606068" metalness={0.7} roughness={0.3} />
       </mesh>
 
       {/* Lower Hub (Strut Junction) */}
       <mesh position={[0, lowerHubH, 0]}>
          <cylinderGeometry args={[0.035, 0.035, 0.06]} />
-         <meshStandardMaterial color="#2a2a30" metalness={0.7} roughness={0.3} />
+         <meshStandardMaterial color="#606068" metalness={0.7} roughness={0.3} />
       </mesh>
 
       {/* Legs & Struts Group */}
@@ -118,14 +123,14 @@ const TripodBase = () => {
           <group position={[0, hubHeight/2, legSpread/2]} rotation={[-legAngle, 0, 0]}>
              <mesh position={[0, 0, 0]} castShadow>
                 <cylinderGeometry args={[legRadius, legRadius, legLength]} />
-                <meshStandardMaterial color="#3a3a3f" metalness={0.6} roughness={0.35} />
+                <meshStandardMaterial color="#707078" metalness={0.6} roughness={0.35} />
              </mesh>
           </group>
 
           {/* Foot */}
           <mesh position={[0, 0.015, legSpread]}>
              <cylinderGeometry args={[0.02, 0.02, 0.03]} />
-             <meshStandardMaterial color="#1a1a1f" metalness={0.5} roughness={0.4} />
+             <meshStandardMaterial color="#505058" metalness={0.5} roughness={0.4} />
           </mesh>
 
           {/* Strut */}
@@ -135,7 +140,7 @@ const TripodBase = () => {
           >
              <mesh castShadow>
                 <cylinderGeometry args={[0.01, 0.01, strutLength]} />
-                <meshStandardMaterial color="#4a4a52" metalness={0.6} roughness={0.35} />
+                <meshStandardMaterial color="#808088" metalness={0.6} roughness={0.35} />
              </mesh>
           </group>
         </group>
@@ -148,7 +153,8 @@ const PlateBase = () => (
   <group>
     <mesh position={[0, 0.025, 0]} receiveShadow>
       <boxGeometry args={[0.6, 0.05, 0.6]} />
-      <meshStandardMaterial color="#2a2a30" metalness={0.6} roughness={0.3} />
+      <meshStandardMaterial color="#606068" metalness={0.6} roughness={0.3} />
+      <EdgeOutline thickness={1} />
     </mesh>
     <mesh position={[0, 0.6, 0]} castShadow>
       <cylinderGeometry args={[0.025, 0.025, 1.2]} />
@@ -170,11 +176,13 @@ const BanquetChair = () => (
     <mesh position={[0, 0.45, 0]} castShadow>
       <boxGeometry args={[0.42, 0.06, 0.42]} />
       <meshStandardMaterial color="#e8e0d0" roughness={0.7} metalness={0.02} />
+      <EdgeOutline thickness={1} />
     </mesh>
     {/* Back */}
     <mesh position={[0, 0.7, 0.2]} rotation={[-0.1, 0, 0]} castShadow>
        <boxGeometry args={[0.42, 0.5, 0.04]} />
        <meshStandardMaterial color="#e8e0d0" roughness={0.7} metalness={0.02} />
+       <EdgeOutline thickness={1} />
     </mesh>
   </group>
 );
@@ -222,6 +230,7 @@ const RoundTable = ({ color, customSize = 6, tableCloth = 'linen', selected, isE
         <cylinderGeometry args={[config.r, config.r, 0.75, 32]} />
         <TableClothMaterial color={color} tableCloth={tableCloth} />
         {selected && isEditMode && <Highlight />}
+        <EdgeOutline />
       </mesh>
       {/* Tablecloth rim — darker ring at bottom edge */}
       <mesh position={[0, 0.01, 0]}>
@@ -232,6 +241,7 @@ const RoundTable = ({ color, customSize = 6, tableCloth = 'linen', selected, isE
       <mesh position={[0, 0.76, 0]} receiveShadow>
          <cylinderGeometry args={[config.r - 0.02, config.r - 0.02, 0.01, 32]} />
          <TableClothMaterial color={color} tableCloth={tableCloth} />
+         <EdgeOutline />
       </mesh>
       {/* Centerpiece circle */}
       <mesh position={[0, 0.77, 0]}>
@@ -263,6 +273,7 @@ const RectTable = ({ color, tableCloth = 'linen', selected, isEditMode }: any) =
         <boxGeometry args={[1.8, 0.75, 0.75]} />
         <TableClothMaterial color={color} tableCloth={tableCloth} />
         {selected && isEditMode && <Highlight />}
+        <EdgeOutline />
       </mesh>
       {/* Tablecloth bottom trim */}
       <mesh position={[0, 0.01, 0]}>
@@ -273,6 +284,7 @@ const RectTable = ({ color, tableCloth = 'linen', selected, isEditMode }: any) =
       <mesh position={[0, 0.76, 0]} receiveShadow>
         <boxGeometry args={[1.76, 0.01, 0.71]} />
         <TableClothMaterial color={color} tableCloth={tableCloth} />
+        <EdgeOutline />
       </mesh>
       {/* Chairs: 3 on each side */}
       {[-0.6, 0, 0.6].map((x, i) => (
@@ -304,6 +316,7 @@ const StairUnit = ({ width, stageHeight, color }: { width: number, stageHeight: 
            <mesh key={i} position={[0, h/2, zPos]} receiveShadow castShadow>
               <boxGeometry args={[width, h, stepDepth]} />
               <meshStandardMaterial color={color} roughness={0.55} metalness={0.03} />
+              <EdgeOutline />
            </mesh>
         );
       })}
@@ -320,6 +333,7 @@ const Stage = ({ color, width = 6, depth = 4, height = 0.5, hasBackdrop, stairs 
       <boxGeometry args={[width, height, depth]} />
       <meshStandardMaterial color={color} roughness={0.55} metalness={0.03} />
       {selected && isEditMode && <Highlight />}
+      <EdgeOutline />
     </mesh>
     {/* Stage top surface — slightly reflective */}
     <mesh position={[0, height + 0.002, 0]} receiveShadow>
@@ -364,17 +378,17 @@ const Stage = ({ color, width = 6, depth = 4, height = 0.5, hasBackdrop, stairs 
       <group position={[0, height, -depth/2 + 0.1]}>
         <mesh position={[0, 1.5, 0]} castShadow receiveShadow>
           <boxGeometry args={[width, 3, 0.1]} />
-          <meshStandardMaterial color="#d8dce5" roughness={0.6} metalness={0.02} />
+          <meshStandardMaterial color="#d8dce5" roughness={0.6} metalness={0.02} side={THREE.DoubleSide} />
         </mesh>
         {/* Backdrop panel */}
         <mesh position={[0, 1.5, 0.06]}>
            <planeGeometry args={[width - 0.4, 2.6]} />
-           <meshStandardMaterial color="#eef1f6" roughness={0.5} metalness={0.05} />
+           <meshStandardMaterial color="#eef1f6" roughness={0.5} metalness={0.05} side={THREE.DoubleSide} />
         </mesh>
         {/* Backdrop frame */}
         <mesh position={[0, 1.5, 0.07]}>
            <planeGeometry args={[width - 0.3, 2.7]} />
-           <meshStandardMaterial color="#aaa" metalness={0.5} roughness={0.3} transparent opacity={0.3} />
+           <meshStandardMaterial color="#aaa" metalness={0.5} roughness={0.3} transparent opacity={0.3} side={THREE.DoubleSide} />
         </mesh>
       </group>
     )}
@@ -433,6 +447,7 @@ const RedCarpet = ({ width = 1.5, depth = 10, selected, isEditMode }: any) => (
        <boxGeometry args={[width, 0.02, depth]} />
        <meshStandardMaterial color="#9f1239" roughness={0.85} metalness={0.02} />
        {selected && isEditMode && <Highlight />}
+       <EdgeOutline />
     </mesh>
     {/* Gold edge trim */}
     <mesh position={[width/2, 0.012, 0]}>
@@ -447,6 +462,9 @@ const RedCarpet = ({ width = 1.5, depth = 10, selected, isEditMode }: any) => (
 );
 
 const Speaker = ({ type, color, standType, selected, isEditMode, tilt = 0 }: any) => {
+  // Lighten dark speaker colors for SketchUp-style visibility
+  const cabinetColor = useMemo(() => new THREE.Color(color).lerp(new THREE.Color('#ffffff'), 0.55).getStyle(), [color]);
+  const grilleColor = useMemo(() => new THREE.Color(color).lerp(new THREE.Color('#ffffff'), 0.35).getStyle(), [color]);
   return (
     <group>
       {type === ObjectType.SPEAKER_15 && (
@@ -456,13 +474,14 @@ const Speaker = ({ type, color, standType, selected, isEditMode, tilt = 0 }: any
               {/* Cabinet */}
               <mesh position={[0, 0.35, 0]} castShadow>
                  <boxGeometry args={[0.4, 0.7, 0.4]} />
-                 <meshStandardMaterial color={color} roughness={0.5} metalness={0.15} />
+                 <meshStandardMaterial color={cabinetColor} roughness={0.5} metalness={0.15} />
                  {selected && isEditMode && <Highlight />}
+                 <EdgeOutline />
               </mesh>
               {/* Grille face */}
               <mesh position={[0, 0.35, 0.21]}>
                  <planeGeometry args={[0.36, 0.66]} />
-                 <meshStandardMaterial color="#111" roughness={0.95} metalness={0.1} />
+                 <meshStandardMaterial color={grilleColor} roughness={0.95} metalness={0.1} />
               </mesh>
               {/* Brand badge */}
               <mesh position={[0, 0.1, 0.211]}>
@@ -477,22 +496,23 @@ const Speaker = ({ type, color, standType, selected, isEditMode, tilt = 0 }: any
         <group>
           <mesh position={[0, 0.35, 0]} castShadow>
              <boxGeometry args={[0.7, 0.7, 0.8]} />
-             <meshStandardMaterial color="#222228" roughness={0.5} metalness={0.15} />
+             <meshStandardMaterial color={cabinetColor} roughness={0.5} metalness={0.15} />
              {selected && isEditMode && <Highlight />}
+             <EdgeOutline />
           </mesh>
           {/* Grille */}
           <mesh position={[0, 0.35, 0.41]}>
              <planeGeometry args={[0.65, 0.65]} />
-             <meshStandardMaterial color="#0a0a0a" roughness={0.95} metalness={0.1} />
+             <meshStandardMaterial color={grilleColor} roughness={0.95} metalness={0.1} />
           </mesh>
           {/* Handles */}
           <mesh position={[0.36, 0.35, 0]}>
             <boxGeometry args={[0.02, 0.15, 0.08]} />
-            <meshStandardMaterial color="#444" metalness={0.7} roughness={0.3} />
+            <meshStandardMaterial color="#707078" metalness={0.7} roughness={0.3} />
           </mesh>
           <mesh position={[-0.36, 0.35, 0]}>
             <boxGeometry args={[0.02, 0.15, 0.08]} />
-            <meshStandardMaterial color="#444" metalness={0.7} roughness={0.3} />
+            <meshStandardMaterial color="#707078" metalness={0.7} roughness={0.3} />
           </mesh>
         </group>
       )}
@@ -501,19 +521,20 @@ const Speaker = ({ type, color, standType, selected, isEditMode, tilt = 0 }: any
         <group rotation={[0.4, 0, 0]}>
            <mesh position={[0, 0.15, 0]} castShadow>
               <boxGeometry args={[0.5, 0.3, 0.4]} />
-              <meshStandardMaterial color="#2d2d33" roughness={0.5} metalness={0.15} />
+              <meshStandardMaterial color={cabinetColor} roughness={0.5} metalness={0.15} />
               {selected && isEditMode && <Highlight />}
+              <EdgeOutline />
            </mesh>
            {/* Grille face */}
            <mesh position={[0, 0.15, 0.201]}>
               <planeGeometry args={[0.46, 0.26]} />
-              <meshStandardMaterial color="#111" roughness={0.95} metalness={0.1} />
+              <meshStandardMaterial color={grilleColor} roughness={0.95} metalness={0.1} />
            </mesh>
            {/* Rubber feet */}
            {[[0.2, 0, 0.15], [-0.2, 0, 0.15], [0.2, 0, -0.15], [-0.2, 0, -0.15]].map((p, i) => (
              <mesh key={i} position={p as [number, number, number]}>
                <cylinderGeometry args={[0.02, 0.02, 0.02]} />
-               <meshStandardMaterial color="#111" roughness={0.9} />
+               <meshStandardMaterial color="#404048" roughness={0.9} />
              </mesh>
            ))}
         </group>
@@ -524,23 +545,25 @@ const Speaker = ({ type, color, standType, selected, isEditMode, tilt = 0 }: any
             {/* Sub Base */}
             <mesh position={[0, 0.25, 0]} castShadow>
                <boxGeometry args={[0.4, 0.5, 0.5]} />
-               <meshStandardMaterial color="#2d2d33" roughness={0.5} metalness={0.15} />
+               <meshStandardMaterial color={cabinetColor} roughness={0.5} metalness={0.15} />
                {selected && isEditMode && <Highlight />}
+               <EdgeOutline />
             </mesh>
             {/* Grille face */}
             <mesh position={[0, 0.25, 0.251]}>
                <planeGeometry args={[0.36, 0.46]} />
-               <meshStandardMaterial color="#111" roughness={0.95} metalness={0.1} />
+               <meshStandardMaterial color={grilleColor} roughness={0.95} metalness={0.1} />
             </mesh>
             {/* Column */}
             <mesh position={[0, 1.25, -0.1]} castShadow>
                <boxGeometry args={[0.12, 1.5, 0.1]} />
-               <meshStandardMaterial color="#2d2d33" roughness={0.45} metalness={0.2} />
+               <meshStandardMaterial color={cabinetColor} roughness={0.45} metalness={0.2} />
+               <EdgeOutline />
             </mesh>
             {/* Column grille */}
             <mesh position={[0, 1.25, -0.049]}>
                <planeGeometry args={[0.1, 1.45]} />
-               <meshStandardMaterial color="#111" roughness={0.95} metalness={0.1} />
+               <meshStandardMaterial color={grilleColor} roughness={0.95} metalness={0.1} />
             </mesh>
          </group>
       )}
@@ -550,6 +573,8 @@ const Speaker = ({ type, color, standType, selected, isEditMode, tilt = 0 }: any
 
 const Lighting = ({ type, color, intensity = 1, tilt = 0, selected, isEditMode, standType }: any) => {
   const bulbColor = new THREE.Color(color).offsetHSL(0, 0, 0.2); // brighter emission version
+  // Lighten fixture body for SketchUp-style visibility
+  const bodyColor = '#a0a0a8';
   
   return (
     <group>
@@ -558,14 +583,15 @@ const Lighting = ({ type, color, intensity = 1, tilt = 0, selected, isEditMode, 
            {/* Floor bracket */}
            <mesh position={[0, 0, 0]}>
              <boxGeometry args={[0.2, 0.05, 0.15]} />
-             <meshStandardMaterial color="#2a2a30" metalness={0.5} roughness={0.35} />
+             <meshStandardMaterial color={bodyColor} metalness={0.5} roughness={0.35} />
            </mesh>
            {/* Head */}
            <group position={[0, 0.15, 0]} rotation={[tilt - 0.5, 0, 0]}>
               <mesh castShadow rotation={[Math.PI/2, 0, 0]}>
                  <cylinderGeometry args={[0.1, 0.08, 0.25, 16]} />
-                 <meshStandardMaterial color="#333338" metalness={0.4} roughness={0.4} />
+                 <meshStandardMaterial color={bodyColor} metalness={0.4} roughness={0.4} />
                  {selected && isEditMode && <Highlight />}
+                 <EdgeOutline />
               </mesh>
               {/* Lens */}
               <mesh position={[0, 0, 0.13]}>
@@ -590,20 +616,22 @@ const Lighting = ({ type, color, intensity = 1, tilt = 0, selected, isEditMode, 
             {/* Base */}
             <mesh position={[0, 0.1, 0]} castShadow>
                <boxGeometry args={[0.3, 0.2, 0.3]} />
-               <meshStandardMaterial color="#2a2a30" metalness={0.4} roughness={0.4} />
+               <meshStandardMaterial color={bodyColor} metalness={0.4} roughness={0.4} />
                {selected && isEditMode && <Highlight />}
+               <EdgeOutline />
             </mesh>
             {/* Yoke (Arms) */}
             <group position={[0, 0.3, 0]}>
                <mesh>
                   <boxGeometry args={[0.25, 0.3, 0.1]} />
-                  <meshStandardMaterial color="#333338" metalness={0.5} roughness={0.35} />
+                  <meshStandardMaterial color={bodyColor} metalness={0.5} roughness={0.35} />
                </mesh>
                {/* Head */}
                <group position={[0, 0.1, 0]} rotation={[tilt, 0, 0]}>
                   <mesh castShadow rotation={[Math.PI/2, 0, 0]}>
                      <cylinderGeometry args={[0.08, 0.1, 0.3]} />
-                     <meshStandardMaterial color="#444450" metalness={0.5} roughness={0.35} />
+                     <meshStandardMaterial color={bodyColor} metalness={0.5} roughness={0.35} />
+                     <EdgeOutline />
                   </mesh>
                   <mesh position={[0, 0, 0.16]}>
                      <circleGeometry args={[0.07, 16]} />
@@ -622,27 +650,29 @@ const Lighting = ({ type, color, intensity = 1, tilt = 0, selected, isEditMode, 
             {/* Extension Pole */}
             <mesh position={[0, 1.6, 0]}>
                <cylinderGeometry args={[0.02, 0.02, 0.8]} />
-               <meshStandardMaterial color="#3a3a3f" metalness={0.6} roughness={0.35} />
+               <meshStandardMaterial color="#707078" metalness={0.6} roughness={0.35} />
             </mesh>
             {/* Adjustment Knob */}
             <mesh position={[0, 1.2, 0]}>
                 <cylinderGeometry args={[0.03, 0.03, 0.06]} />
-                <meshStandardMaterial color="#2a2a30" metalness={0.7} roughness={0.3} />
+                <meshStandardMaterial color="#606068" metalness={0.7} roughness={0.3} />
             </mesh>
 
             <group position={[0, 2, 0]}>
                {/* T-Bar */}
                <mesh>
                   <boxGeometry args={[1.5, 0.05, 0.05]} />
-                  <meshStandardMaterial color="#2a2a30" metalness={0.6} roughness={0.3} />
+                  <meshStandardMaterial color={bodyColor} metalness={0.6} roughness={0.3} />
                   {selected && isEditMode && <Highlight />}
+                  <EdgeOutline />
                </mesh>
                {/* 4 Par Cans */}
                {[-0.6, -0.2, 0.2, 0.6].map((x, i) => (
                   <group key={i} position={[x, -0.15, 0]} rotation={[tilt + 0.5, 0, 0]}>
                      <mesh castShadow rotation={[Math.PI/2, 0, 0]}>
                         <cylinderGeometry args={[0.08, 0.06, 0.2]} />
-                        <meshStandardMaterial color="#333338" metalness={0.4} roughness={0.4} />
+                        <meshStandardMaterial color={bodyColor} metalness={0.4} roughness={0.4} />
+                        <EdgeOutline />
                      </mesh>
                      <mesh position={[0, 0, 0.11]}>
                         <circleGeometry args={[0.06, 16]} />

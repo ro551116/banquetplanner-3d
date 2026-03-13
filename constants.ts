@@ -130,7 +130,7 @@ export const createObjectConfig = (
   if (isLight) defaultColor = '#fbbf24';
   else if (type === ObjectType.STAGE) defaultColor = '#ffffff';
   else if (type === ObjectType.RED_CARPET) defaultColor = '#b91c1c';
-  else if (isSpeaker) defaultColor = '#52525b';
+  else if (isSpeaker) defaultColor = '#888890';
   else if (isTable) defaultColor = '#f5f0e8';
 
   return {

@@ -1,10 +1,9 @@
 import React, { useCallback } from 'react';
 import { Canvas } from '@react-three/fiber';
 import {
-  OrbitControls, Grid, PerspectiveCamera, Environment,
-  Line, SoftShadows, Stars, ContactShadows
+  OrbitControls, Grid, PerspectiveCamera,
+  Line, GizmoHelper, GizmoViewport
 } from '@react-three/drei';
-import { EffectComposer, Bloom, Vignette, ToneMapping, N8AO, SMAA } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { BanquetObject, HallConfig, ObjectType, DrawingPath } from '../types';
 import { CameraRig } from './CameraRig';
@@ -122,129 +121,58 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
       {/* ===== EDIT MODE ===== */}
       {mode === 'EDIT' ? (
         <>
-          <color attach="background" args={['#e8ecf1']} />
+          <color attach="background" args={['#f0f0f0']} />
 
-          {/* Three-point lighting for depth */}
-          {/* Key light — main directional */}
+          {/* SketchUp-style sun light */}
           <directionalLight
-            position={[10, 20, 5]}
+            position={[5, 10, 5]}
             intensity={1.5}
             castShadow
-            shadow-mapSize={[4096, 4096]}
+            shadow-mapSize={[2048, 2048]}
             shadow-camera-left={-25} shadow-camera-right={25}
             shadow-camera-top={25} shadow-camera-bottom={-25}
             shadow-camera-near={1} shadow-camera-far={60}
             shadow-bias={-0.0003}
           />
-          {/* Fill light — softer from opposite side */}
-          <directionalLight
-            position={[-8, 12, -6]}
-            intensity={0.4}
-          />
-          {/* Rim light — subtle backlight for edge separation */}
-          <directionalLight
-            position={[0, 8, -15]}
-            intensity={0.3}
-          />
-          {/* Ambient — enough to see into shadows without washing out */}
-          <ambientLight intensity={0.5} />
-
-          {/* HDR Environment for reflections */}
-          <Environment preset="city" background={false} />
-
-          {/* Contact shadows for object grounding */}
-          <ContactShadows
-            position={[0, 0.001, 0]}
-            opacity={0.2}
-            scale={50}
-            blur={2.5}
-            far={10}
-            resolution={256}
-          />
-
-          {/* Post-processing: AO + AA */}
-          <EffectComposer multisampling={0}>
-            <N8AO
-              aoRadius={0.3}
-              intensity={1.0}
-              distanceFalloff={0.3}
-            />
-            <SMAA />
-          </EffectComposer>
+          {/* Fill light from opposite side */}
+          <directionalLight position={[-5, 8, -3]} intensity={0.6} />
+          <ambientLight intensity={0.8} />
         </>
       ) : (
         <>
           {/* ===== VIEW MODE ===== */}
           {viewEnvironment === 'day' ? (
             <>
-              <color attach="background" args={['#dce4ef']} />
-              {/* Key light */}
+              <color attach="background" args={['#f0f0f0']} />
               <directionalLight
-                position={[12, 18, 8]}
-                intensity={1.8}
+                position={[5, 10, 5]}
+                intensity={1.5}
                 castShadow
-                shadow-mapSize={[4096, 4096]}
+                shadow-mapSize={[2048, 2048]}
                 shadow-camera-left={-25} shadow-camera-right={25}
                 shadow-camera-top={25} shadow-camera-bottom={-25}
                 shadow-camera-near={1} shadow-camera-far={60}
                 shadow-bias={-0.0003}
               />
-              {/* Fill light */}
-              <directionalLight position={[-8, 12, -4]} intensity={0.4} />
-              {/* Rim */}
-              <directionalLight position={[0, 6, -15]} intensity={0.25} />
-              <ambientLight intensity={0.3} />
-
-              <Environment preset="lobby" background={false} />
-
-              <ContactShadows
-                position={[0, 0.001, 0]}
-                opacity={0.25}
-                scale={50}
-                blur={2.5}
-                far={10}
-                resolution={256}
-              />
+              <directionalLight position={[-5, 8, -3]} intensity={0.6} />
+              <ambientLight intensity={0.8} />
             </>
           ) : (
             <>
-              <color attach="background" args={['#0a0e1a']} />
-              <ambientLight intensity={0.08} color="#b8c4e0" />
-              {/* Main overhead warm downlight */}
-              <spotLight
-                position={[0, hall.height - 0.5, 0]}
-                angle={0.9} penumbra={0.8} intensity={2.5}
-                color="#ffeedd"
+              <color attach="background" args={['#1a1a2e']} />
+              <directionalLight
+                position={[5, 10, 5]}
+                intensity={0.8}
                 castShadow
-                shadow-mapSize={[4096, 4096]}
+                shadow-mapSize={[2048, 2048]}
+                shadow-camera-left={-25} shadow-camera-right={25}
+                shadow-camera-top={25} shadow-camera-bottom={-25}
+                shadow-camera-near={1} shadow-camera-far={60}
                 shadow-bias={-0.0003}
               />
-              {/* Accent side lights */}
-              <pointLight position={[-hall.width / 2 + 1, hall.height - 1, -hall.length / 3]} intensity={0.6} color="#c8a060" distance={15} decay={2} />
-              <pointLight position={[hall.width / 2 - 1, hall.height - 1, hall.length / 3]} intensity={0.6} color="#c8a060" distance={15} decay={2} />
-              <Stars radius={100} depth={50} count={3000} factor={3} saturation={0} fade speed={0.5} />
-              <Environment preset="night" background={false} />
+              <ambientLight intensity={0.3} />
             </>
           )}
-
-          <EffectComposer multisampling={0}>
-            <N8AO
-              aoRadius={0.3}
-              intensity={viewEnvironment === 'night' ? 1.2 : 1.0}
-              distanceFalloff={0.3}
-            />
-            <Bloom
-              luminanceThreshold={viewEnvironment === 'night' ? 0.6 : 1.2}
-              mipmapBlur
-              intensity={viewEnvironment === 'night' ? 0.8 : 0.3}
-              radius={0.5}
-            />
-            <Vignette eskil={false} offset={0.1} darkness={viewEnvironment === 'night' ? 0.5 : 0.2} />
-            <SMAA />
-            <ToneMapping />
-          </EffectComposer>
-
-          <SoftShadows size={2} samples={8} focus={0.5} />
         </>
       )}
 
@@ -252,11 +180,30 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
         <Grid
           position={[0, -0.01, 0]}
           args={[hall.width, hall.length]}
-          cellSize={1} cellThickness={0.6} cellColor="#94a3b8"
-          sectionSize={5} sectionThickness={1.0} sectionColor="#475569"
+          cellSize={1} cellThickness={0.6} cellColor="#d0d0d0"
+          sectionSize={5} sectionThickness={1.0} sectionColor="#b0b0b0"
           fadeDistance={40}
           infiniteGrid
         />
+      )}
+
+      {/* SketchUp-style RGB axis lines — EDIT mode only */}
+      {mode === 'EDIT' && (
+        <group>
+          {/* X axis — Red */}
+          <Line points={[[-50, 0, 0], [50, 0, 0]]} color="#FF0000" lineWidth={1.5} raycast={() => null} />
+          {/* Z axis — Green (front/back in Three.js = green axis in SketchUp) */}
+          <Line points={[[0, 0, -50], [0, 0, 50]]} color="#00CC00" lineWidth={1.5} raycast={() => null} />
+          {/* Y axis — Blue (vertical, positive only up to ceiling) */}
+          <Line points={[[0, 0, 0], [0, hall.height || 10, 0]]} color="#0000FF" lineWidth={1.5} raycast={() => null} />
+        </group>
+      )}
+
+      {/* 3D axis indicator (Gizmo) — EDIT mode only */}
+      {mode === 'EDIT' && (
+        <GizmoHelper alignment="bottom-left" margin={[80, 80]}>
+          <GizmoViewport axisColors={['#FF0000', '#0000FF', '#00CC00']} labelColor="black" />
+        </GizmoHelper>
       )}
 
       <group>

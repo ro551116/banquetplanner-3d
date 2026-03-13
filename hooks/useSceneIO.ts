@@ -1,5 +1,8 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { BanquetObject, HallConfig, DrawingPath } from '../types';
+
+const STORAGE_KEY = 'banquet3d-scene';
+const SAVE_DEBOUNCE = 1000; // ms
 
 interface UseSceneIOParams {
   hall: HallConfig;
@@ -19,7 +22,42 @@ export function useSceneIO({
   setSelectedIds, setIsDrawMode, setMode
 }: UseSceneIOParams) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const initializedRef = useRef(false);
 
+  // --- Auto-load from localStorage on mount ---
+  useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (data.hall) setHall(data.hall);
+      if (data.objects) setObjects(data.objects);
+      if (data.drawings) setDrawings(data.drawings);
+    } catch {
+      // corrupted data — ignore
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- Auto-save to localStorage on changes (debounced) ---
+  useEffect(() => {
+    // Skip the very first render (before load completes)
+    if (!initializedRef.current) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      try {
+        const data = JSON.stringify({ hall, objects, drawings });
+        localStorage.setItem(STORAGE_KEY, data);
+      } catch {
+        // storage full — ignore
+      }
+    }, SAVE_DEBOUNCE);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [hall, objects, drawings]);
+
+  // --- Export JSON file ---
   const exportScene = useCallback(() => {
     const sceneData = {
       metadata: { appName: "BanquetPlanner 3D", version: "1.0", timestamp: new Date().toISOString() },
@@ -36,6 +74,7 @@ export function useSceneIO({
     URL.revokeObjectURL(url);
   }, [hall, objects, drawings]);
 
+  // --- Import JSON file ---
   const handleImportClick = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
@@ -48,19 +87,14 @@ export function useSceneIO({
       try {
         const content = e.target?.result as string;
         const data = JSON.parse(content);
-        if (!data.metadata && !data.hall) {
-          if (!confirm("The file format might be different. Do you want to try importing anyway?")) return;
-        }
         if (data.hall) setHall(data.hall);
         if (data.objects) setObjects(data.objects);
         if (data.drawings) setDrawings(data.drawings);
         setSelectedIds(new Set());
         setIsDrawMode(false);
         setMode('EDIT');
-        alert("匯入成功！ (Import Successful)");
       } catch (err) {
         console.error("Import failed:", err);
-        alert("匯入失敗，檔案格式錯誤 (Import Failed)");
       } finally {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
@@ -68,6 +102,7 @@ export function useSceneIO({
     reader.readAsText(file);
   }, [setHall, setObjects, setDrawings, setSelectedIds, setIsDrawMode, setMode]);
 
+  // --- Screenshot ---
   const takeScreenshot = useCallback(() => {
     const canvas = document.querySelector('canvas');
     if (canvas) {
