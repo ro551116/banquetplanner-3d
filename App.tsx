@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import { ObjectType } from './types';
 import { INITIAL_HALL } from './constants';
@@ -12,8 +12,10 @@ import { PropertiesPanel } from './components/PropertiesPanel';
 import { AdvancedAddModal } from './components/AdvancedAddModal';
 import StatusBar from './components/StatusBar';
 import { SceneCanvas } from './components/SceneCanvas';
+import { SceneManager } from './components/SceneManager';
 
 export default function App() {
+  const [sceneId, setSceneId] = useState<string | null>(null);
   const [mode, setMode] = useState<'EDIT' | 'VIEW'>('EDIT');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [hall, setHall] = useState(INITIAL_HALL);
@@ -36,7 +38,7 @@ export default function App() {
   const drawing = useDrawing();
 
   const sceneIO = useSceneIO({
-    hall, objects, drawings: drawing.drawings,
+    sceneId, hall, objects, drawings: drawing.drawings,
     setHall, setObjects, setDrawings: drawing.setDrawings,
     setSelectedIds, setIsDrawMode: drawing.setIsDrawMode, setMode
   });
@@ -47,6 +49,20 @@ export default function App() {
     setSelectedIds, setIsDrawMode: drawing.setIsDrawMode,
     undo, redo, duplicateObjects
   });
+
+  const handleLoadScene = useCallback(async (id: string) => {
+    setSceneId(id);
+    await sceneIO.loadScene(id);
+  }, [sceneIO.loadScene]);
+
+  const handleNewScene = useCallback(async (id: string) => {
+    setSceneId(id);
+    await sceneIO.loadScene(id);
+  }, [sceneIO.loadScene]);
+
+  const handleBackToList = useCallback(() => {
+    setSceneId(null);
+  }, []);
 
   const handleAddObjectFromSidebar = (type: ObjectType, pos?: { x: number; y: number; z: number }) => {
     const newObj = addObject(type, pos);
@@ -73,6 +89,12 @@ export default function App() {
     }
   };
 
+  // --- Scene Manager (no scene loaded) ---
+  if (!sceneId) {
+    return <SceneManager onLoad={handleLoadScene} onNew={handleNewScene} />;
+  }
+
+  // --- Main Editor ---
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-100 text-slate-900 font-sans overflow-hidden">
 
@@ -114,6 +136,7 @@ export default function App() {
         takeScreenshot={sceneIO.takeScreenshot}
         panelOpen={panelOpen}
         setPanelOpen={setPanelOpen}
+        onBackToList={handleBackToList}
       />
 
       {/* Main Area */}

@@ -8,7 +8,7 @@ import {
   Upload, Download, PlusSquare,
   SunMedium, Moon, Image as ImageIcon,
   LayoutGrid, ArrowDownToLine, Tv, PanelLeft,
-  Plus, Settings,
+  Plus, Settings, ChevronLeft,
 } from 'lucide-react';
 import { ObjectType } from '../types';
 import { PRESET_VIEWS } from '../constants';
@@ -39,6 +39,7 @@ interface TopToolbarProps {
   // Mobile panel toggle
   panelOpen: boolean;
   setPanelOpen: (v: boolean) => void;
+  onBackToList?: () => void;
 }
 
 const PRESET_VIEW_ICONS = [
@@ -96,7 +97,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   handleImportClick, exportScene, setShowBatchModal,
   undo, redo, canUndo, canRedo,
   viewIndex, setViewIndex, viewEnvironment, setViewEnvironment, takeScreenshot,
-  panelOpen, setPanelOpen,
+  panelOpen, setPanelOpen, onBackToList,
 }) => {
   const [addMenuOpen, setAddMenuOpen] = useState(false);
 
@@ -108,7 +109,12 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
 
   return (
     <div className="h-12 bg-[#f5f5f5] border-b border-slate-300 flex items-center px-2 gap-1 flex-shrink-0 select-none" style={{ minHeight: 48, maxHeight: 48 }}>
-      {/* Left: Logo + Mode */}
+      {/* Left: Back + Logo + Mode */}
+      {onBackToList && (
+        <IconBtn onClick={onBackToList} title="返回場景列表">
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </IconBtn>
+      )}
       <span className="text-xs font-bold text-slate-700 whitespace-nowrap px-1 hidden sm:block">Banquet 3D</span>
       <span className="text-xs font-bold text-slate-700 whitespace-nowrap px-1 sm:hidden">B3D</span>
       <Divider />

@@ -1,10 +1,11 @@
 import { useRef, useCallback, useEffect } from 'react';
 import { BanquetObject, HallConfig, DrawingPath } from '../types';
+import { scenesApi } from '../services/scenesApi';
 
-const STORAGE_KEY = 'banquet3d-scene';
-const SAVE_DEBOUNCE = 1000; // ms
+const SAVE_DEBOUNCE = 2000; // ms
 
 interface UseSceneIOParams {
+  sceneId: string | null;
   hall: HallConfig;
   objects: BanquetObject[];
   drawings: DrawingPath[];
@@ -17,45 +18,46 @@ interface UseSceneIOParams {
 }
 
 export function useSceneIO({
-  hall, objects, drawings,
+  sceneId, hall, objects, drawings,
   setHall, setObjects, setDrawings,
   setSelectedIds, setIsDrawMode, setMode
 }: UseSceneIOParams) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
-  const initializedRef = useRef(false);
+  const loadedRef = useRef(false);
+  const saveCountRef = useRef(0);
 
-  // --- Auto-load from localStorage on mount ---
-  useEffect(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
+  // --- Load scene from API ---
+  const loadScene = useCallback(async (id: string) => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const data = JSON.parse(raw);
-      if (data.hall) setHall(data.hall);
-      if (data.objects) setObjects(data.objects);
-      if (data.drawings) setDrawings(data.drawings);
-    } catch {
-      // corrupted data — ignore
+      const scene = await scenesApi.get(id);
+      loadedRef.current = false; // prevent auto-save during load
+      if (scene.data.hall) setHall(scene.data.hall);
+      if (scene.data.objects) setObjects(scene.data.objects);
+      if (scene.data.drawings) setDrawings(scene.data.drawings ?? []);
+      // Allow auto-save after a tick
+      setTimeout(() => { loadedRef.current = true; saveCountRef.current = 0; }, 100);
+    } catch (err) {
+      console.error('Load scene failed:', err);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [setHall, setObjects, setDrawings]);
 
-  // --- Auto-save to localStorage on changes (debounced) ---
+  // --- Auto-save to API (debounced) ---
   useEffect(() => {
-    // Skip the very first render (before load completes)
-    if (!initializedRef.current) return;
+    if (!sceneId || !loadedRef.current) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
+    debounceRef.current = setTimeout(async () => {
       try {
-        const data = JSON.stringify({ hall, objects, drawings });
-        localStorage.setItem(STORAGE_KEY, data);
-      } catch {
-        // storage full — ignore
+        await scenesApi.update(sceneId, {
+          data: { hall, objects, drawings },
+        });
+        saveCountRef.current++;
+      } catch (err) {
+        console.error('Auto-save failed:', err);
       }
     }, SAVE_DEBOUNCE);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [hall, objects, drawings]);
+  }, [sceneId, hall, objects, drawings]);
 
   // --- Export JSON file ---
   const exportScene = useCallback(() => {
@@ -93,6 +95,8 @@ export function useSceneIO({
         setSelectedIds(new Set());
         setIsDrawMode(false);
         setMode('EDIT');
+        // Mark as loaded so auto-save kicks in
+        loadedRef.current = true;
       } catch (err) {
         console.error("Import failed:", err);
       } finally {
@@ -123,6 +127,7 @@ export function useSceneIO({
 
   return {
     fileInputRef,
+    loadScene,
     exportScene,
     handleImportClick,
     handleFileChange,
