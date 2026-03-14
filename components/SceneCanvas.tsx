@@ -199,8 +199,8 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
         <Grid
           position={[0, -0.01, 0]}
           args={[hall.width, hall.length]}
-          cellSize={1} cellThickness={0.6} cellColor="#d0d0d0"
-          sectionSize={5} sectionThickness={1.0} sectionColor="#b0b0b0"
+          cellSize={1} cellThickness={0.4} cellColor="#e0e0e0"
+          sectionSize={5} sectionThickness={0.7} sectionColor="#c8c8c8"
           fadeDistance={40}
           infiniteGrid
         />

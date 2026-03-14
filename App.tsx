@@ -88,6 +88,8 @@ export default function App() {
     if (m === 'VIEW') {
       setSelectedIds(new Set());
       drawing.setIsDrawMode(false);
+    } else {
+      setPanelOpen(true);
     }
   };
 

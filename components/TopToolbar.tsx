@@ -89,16 +89,16 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       <span className="text-xs font-bold text-slate-700 whitespace-nowrap px-1 hidden sm:block">Banquet 3D</span>
       <span className="text-xs font-bold text-slate-700 whitespace-nowrap px-1 sm:hidden">B3D</span>
       <Divider />
-      <div className="flex items-center bg-slate-200 rounded h-6 p-0.5 flex-shrink-0">
+      <div className="flex items-center bg-slate-200 rounded h-7 p-0.5 flex-shrink-0">
         <button
           onClick={() => setMode('EDIT')}
-          className={`px-2 h-5 text-[10px] font-semibold rounded transition-colors ${mode === 'EDIT' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          className={`px-3 h-6 text-[10px] font-bold rounded transition-colors ${mode === 'EDIT' ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-200' : 'text-slate-400 hover:text-slate-600'}`}
         >
           Edit
         </button>
         <button
           onClick={() => setMode('VIEW')}
-          className={`px-2 h-5 text-[10px] font-semibold rounded transition-colors ${mode === 'VIEW' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          className={`px-3 h-6 text-[10px] font-bold rounded transition-colors ${mode === 'VIEW' ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-200' : 'text-slate-400 hover:text-slate-600'}`}
         >
           View
         </button>
@@ -142,7 +142,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       </div>
 
       {/* Right section */}
-      <div className="flex items-center gap-0.5 flex-shrink-0">
+      <div className="flex items-center gap-0 flex-shrink-0">
         {mode === 'EDIT' && (
           <>
             {/* Drawing tools — hidden on small screens */}
