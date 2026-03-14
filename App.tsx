@@ -13,6 +13,7 @@ import { AdvancedAddModal } from './components/AdvancedAddModal';
 import StatusBar from './components/StatusBar';
 import { SceneCanvas } from './components/SceneCanvas';
 import { SceneManager } from './components/SceneManager';
+import { AddObjectPanel } from './components/AddObjectPanel';
 
 export default function App() {
   const [sceneId, setSceneId] = useState<string | null>(null);
@@ -25,6 +26,7 @@ export default function App() {
   const [viewEnvironment, setViewEnvironment] = useState<'day' | 'night'>('day');
   const [draggedType, setDraggedType] = useState<ObjectType | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [addPanelOpen, setAddPanelOpen] = useState(true);
 
   const objectRefs = useRef<Record<string, THREE.Group | null>>({});
 
@@ -120,8 +122,6 @@ export default function App() {
         setDrawingColor={drawing.setDrawingColor}
         clearDrawings={drawing.clearDrawings}
         setSelectedIds={setSelectedIds}
-        addObject={handleAddObjectFromSidebar}
-        setDraggedType={setDraggedType}
         handleImportClick={sceneIO.handleImportClick}
         exportScene={sceneIO.exportScene}
         setShowBatchModal={setShowBatchModal}
@@ -136,11 +136,24 @@ export default function App() {
         takeScreenshot={sceneIO.takeScreenshot}
         panelOpen={panelOpen}
         setPanelOpen={setPanelOpen}
+        addPanelOpen={addPanelOpen}
+        setAddPanelOpen={setAddPanelOpen}
         onBackToList={handleBackToList}
       />
 
       {/* Main Area */}
       <div className="flex flex-1 min-h-0">
+        {/* Left: Add Object Panel (EDIT mode only) */}
+        {mode === 'EDIT' && (
+          <AddObjectPanel
+            isOpen={addPanelOpen}
+            setIsOpen={setAddPanelOpen}
+            addObject={(type) => handleAddObjectFromSidebar(type)}
+            setDraggedType={setDraggedType}
+            setIsDrawMode={drawing.setIsDrawMode}
+          />
+        )}
+
         {/* 3D Scene */}
         <div className="flex-1 relative">
           <SceneCanvas

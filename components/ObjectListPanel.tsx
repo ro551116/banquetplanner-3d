@@ -2,7 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   ChevronUp, Trash2, List,
   Disc, Maximize, Box, ScrollText, Music, MonitorPlay,
-  MoveVertical, Lightbulb, Zap, GripHorizontal, Speaker
+  MoveVertical, Lightbulb, Zap, GripHorizontal, Speaker,
+  Rows, Scan, RectangleHorizontal, Wind, Sliders, SunDim,
+  Wine, Mic, SquareDashedBottom, Projector, Tv2, Contact,
 } from 'lucide-react';
 import { BanquetObject, ObjectType } from '../types';
 
@@ -18,6 +20,19 @@ const TYPE_INFO: Record<string, { label: string; icon: React.ReactNode }> = {
   [ObjectType.LIGHT_PAR]: { label: 'LED 帕燈', icon: <Lightbulb className="w-3 h-3" /> },
   [ObjectType.LIGHT_MOVING]: { label: '電腦燈', icon: <Zap className="w-3 h-3" /> },
   [ObjectType.LIGHT_STAND]: { label: 'T型燈桿', icon: <GripHorizontal className="w-3 h-3" /> },
+  [ObjectType.SPEAKER_LINE_ARRAY]: { label: '線陣列', icon: <Rows className="w-3 h-3" /> },
+  [ObjectType.LIGHT_FOLLOWSPOT]: { label: '追蹤燈', icon: <Scan className="w-3 h-3" /> },
+  [ObjectType.LIGHT_WASH]: { label: '染色燈', icon: <RectangleHorizontal className="w-3 h-3" /> },
+  [ObjectType.LIGHT_STROBE]: { label: '頻閃燈', icon: <SunDim className="w-3 h-3" /> },
+  [ObjectType.TRUSS_STRAIGHT]: { label: '桁架', icon: <GripHorizontal className="w-3 h-3" /> },
+  [ObjectType.EQUIPMENT_MIXER]: { label: '混音台', icon: <Sliders className="w-3 h-3" /> },
+  [ObjectType.EFFECTS_FOG]: { label: '煙霧機', icon: <Wind className="w-3 h-3" /> },
+  [ObjectType.COCKTAIL_TABLE]: { label: '雞尾酒桌', icon: <Wine className="w-3 h-3" /> },
+  [ObjectType.PODIUM]: { label: '講台', icon: <Mic className="w-3 h-3" /> },
+  [ObjectType.DANCE_FLOOR]: { label: '舞池', icon: <SquareDashedBottom className="w-3 h-3" /> },
+  [ObjectType.RECEPTION_DESK]: { label: '報到桌', icon: <Contact className="w-3 h-3" /> },
+  [ObjectType.PROJECTION_SCREEN]: { label: '投影幕', icon: <Projector className="w-3 h-3" /> },
+  [ObjectType.LED_WALL]: { label: 'LED牆', icon: <Tv2 className="w-3 h-3" /> },
 };
 
 interface ObjectListPanelProps {

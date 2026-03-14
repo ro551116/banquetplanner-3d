@@ -1,8 +1,5 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  Disc, Maximize, Box, ScrollText,
-  Music, MonitorPlay, MoveVertical,
-  Lightbulb, Zap, GripHorizontal,
   PenTool, Eraser,
   Undo2, Redo2,
   Upload, Download, PlusSquare,
@@ -10,7 +7,6 @@ import {
   LayoutGrid, ArrowDownToLine, Tv, PanelLeft,
   Plus, Settings, ChevronLeft,
 } from 'lucide-react';
-import { ObjectType } from '../types';
 import { PRESET_VIEWS } from '../constants';
 
 interface TopToolbarProps {
@@ -22,8 +18,6 @@ interface TopToolbarProps {
   setDrawingColor: (c: string) => void;
   clearDrawings: () => void;
   setSelectedIds: (ids: Set<string>) => void;
-  addObject: (type: ObjectType, pos?: { x: number; y: number; z: number }) => any;
-  setDraggedType: (type: ObjectType | null) => void;
   handleImportClick: () => void;
   exportScene: () => void;
   setShowBatchModal: (v: boolean) => void;
@@ -36,9 +30,11 @@ interface TopToolbarProps {
   viewEnvironment: 'day' | 'night';
   setViewEnvironment: React.Dispatch<React.SetStateAction<'day' | 'night'>>;
   takeScreenshot: () => void;
-  // Mobile panel toggle
+  // Panel toggles
   panelOpen: boolean;
   setPanelOpen: (v: boolean) => void;
+  addPanelOpen: boolean;
+  setAddPanelOpen: (v: boolean) => void;
   onBackToList?: () => void;
 }
 
@@ -50,22 +46,6 @@ const PRESET_VIEW_ICONS = [
 ];
 
 const DRAW_COLORS = ['#3b82f6', '#ef4444', '#eab308', '#22c55e'];
-
-const ADD_ITEMS: { type: ObjectType; label: string; icon: React.ReactNode }[] = [
-  { type: ObjectType.ROUND_TABLE, label: '圓桌', icon: <Disc className="w-3.5 h-3.5" /> },
-  { type: ObjectType.RECT_TABLE, label: '長桌', icon: <Maximize className="w-3.5 h-3.5" /> },
-  { type: ObjectType.STAGE, label: '舞台', icon: <Box className="w-3.5 h-3.5" /> },
-  { type: ObjectType.RED_CARPET, label: '紅地毯', icon: <ScrollText className="w-3.5 h-3.5" /> },
-  { type: ObjectType.SPEAKER_15, label: '15吋喇叭', icon: <Music className="w-3.5 h-3.5" /> },
-  { type: ObjectType.SPEAKER_SUB, label: '超低音', icon: <Box className="w-3.5 h-3.5" /> },
-  { type: ObjectType.SPEAKER_MONITOR, label: '監聽喇叭', icon: <MonitorPlay className="w-3.5 h-3.5" /> },
-  { type: ObjectType.SPEAKER_COLUMN, label: '音柱喇叭', icon: <MoveVertical className="w-3.5 h-3.5" /> },
-  { type: ObjectType.LIGHT_PAR, label: 'LED帕燈', icon: <Lightbulb className="w-3.5 h-3.5" /> },
-  { type: ObjectType.LIGHT_MOVING, label: '電腦燈', icon: <Zap className="w-3.5 h-3.5" /> },
-  { type: ObjectType.LIGHT_STAND, label: 'T型燈桿', icon: <GripHorizontal className="w-3.5 h-3.5" /> },
-];
-
-const DIVIDER_AFTER = [3, 7]; // indices after which to place a divider (furniture|audio|lighting)
 
 const IconBtn: React.FC<{
   onClick: () => void;
@@ -93,20 +73,11 @@ const Divider = () => <div className="w-px h-5 bg-slate-300 mx-1 flex-shrink-0" 
 export const TopToolbar: React.FC<TopToolbarProps> = ({
   mode, setMode,
   isDrawMode, setIsDrawMode, drawingColor, setDrawingColor, clearDrawings, setSelectedIds,
-  addObject, setDraggedType,
   handleImportClick, exportScene, setShowBatchModal,
   undo, redo, canUndo, canRedo,
   viewIndex, setViewIndex, viewEnvironment, setViewEnvironment, takeScreenshot,
-  panelOpen, setPanelOpen, onBackToList,
+  panelOpen, setPanelOpen, addPanelOpen, setAddPanelOpen, onBackToList,
 }) => {
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
-
-  const handleAdd = (type: ObjectType) => {
-    addObject(type);
-    setIsDrawMode(false);
-    setAddMenuOpen(false);
-  };
-
   return (
     <div className="h-12 bg-[#f5f5f5] border-b border-slate-300 flex items-center px-2 gap-1 flex-shrink-0 select-none" style={{ minHeight: 48, maxHeight: 48 }}>
       {/* Left: Back + Logo + Mode */}
@@ -138,56 +109,14 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       <div className="flex items-center gap-0.5 flex-1 justify-center min-w-0">
         {mode === 'EDIT' ? (
           <>
-            {/* Desktop: icon + label buttons */}
-            <div className="hidden md:flex items-center gap-0.5">
-              {ADD_ITEMS.map((item, idx) => (
-                <React.Fragment key={item.type}>
-                  <button
-                    draggable
-                    onDragStart={(e) => {
-                      setDraggedType(item.type);
-                      e.dataTransfer.setData('application/banquet-type', item.type);
-                      e.dataTransfer.effectAllowed = 'copy';
-                    }}
-                    onClick={() => handleAdd(item.type)}
-                    title={item.label}
-                    className="flex flex-col items-center justify-center px-1.5 py-0.5 rounded hover:bg-slate-200 active:bg-slate-300 text-slate-600 hover:text-blue-600 transition-colors cursor-grab active:cursor-grabbing"
-                  >
-                    {item.icon}
-                    <span className="text-[8px] leading-tight mt-0.5 whitespace-nowrap">{item.label}</span>
-                  </button>
-                  {DIVIDER_AFTER.includes(idx) && <Divider />}
-                </React.Fragment>
-              ))}
-            </div>
-            {/* Mobile: dropdown add menu */}
-            <div className="md:hidden relative">
-              <button
-                onClick={() => setAddMenuOpen(!addMenuOpen)}
-                className={`flex items-center gap-1 px-2 h-7 text-[10px] font-semibold rounded transition-colors ${addMenuOpen ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}
-              >
-                <Plus className="w-3.5 h-3.5" /> Add
-              </button>
-              {addMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setAddMenuOpen(false)} />
-                  <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-50 py-1 min-w-[140px]">
-                    {ADD_ITEMS.map((item, idx) => (
-                      <React.Fragment key={item.type}>
-                        {DIVIDER_AFTER.includes(idx - 1) && <div className="h-px bg-slate-100 my-0.5" />}
-                        <button
-                          onClick={() => handleAdd(item.type)}
-                          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-600"
-                        >
-                          {item.icon}
-                          {item.label}
-                        </button>
-                      </React.Fragment>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
+            {/* Add panel toggle — desktop (hidden, panel has its own toggle) */}
+            {/* Add panel toggle — mobile */}
+            <button
+              onClick={() => setAddPanelOpen(!addPanelOpen)}
+              className={`md:hidden flex items-center gap-1 px-2 h-7 text-[10px] font-semibold rounded transition-colors ${addPanelOpen ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+            >
+              <Plus className="w-3.5 h-3.5" /> Add
+            </button>
           </>
         ) : (
           <>

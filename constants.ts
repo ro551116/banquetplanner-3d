@@ -123,15 +123,46 @@ export const createObjectConfig = (
 ): BanquetObject => {
   const isLight = type.includes('LIGHT');
   const isSpeaker = type.includes('SPEAKER');
+  const isEquipment = type.includes('EQUIPMENT') || type.includes('EFFECTS') || type.includes('TRUSS');
 
-  const isTable = type === ObjectType.ROUND_TABLE || type === ObjectType.RECT_TABLE;
+  const isTable = type === ObjectType.ROUND_TABLE || type === ObjectType.RECT_TABLE || type === ObjectType.COCKTAIL_TABLE;
 
   let defaultColor = '#f5f0e8';
   if (isLight) defaultColor = '#fbbf24';
   else if (type === ObjectType.STAGE) defaultColor = '#ffffff';
+  else if (type === ObjectType.DANCE_FLOOR) defaultColor = '#d4c5a0';
   else if (type === ObjectType.RED_CARPET) defaultColor = '#b91c1c';
+  else if (type === ObjectType.PODIUM) defaultColor = '#5c3a1e';
+  else if (type === ObjectType.PROJECTION_SCREEN) defaultColor = '#ffffff';
+  else if (type === ObjectType.LED_WALL) defaultColor = '#1a1a2e';
+  else if (type === ObjectType.RECEPTION_DESK) defaultColor = '#f5f0e8';
   else if (isSpeaker) defaultColor = '#888890';
+  else if (type === ObjectType.TRUSS_STRAIGHT) defaultColor = '#a0a0a8';
+  else if (type === ObjectType.EQUIPMENT_MIXER) defaultColor = '#3a3a42';
+  else if (type === ObjectType.EFFECTS_FOG) defaultColor = '#606068';
   else if (isTable) defaultColor = '#f5f0e8';
+
+  // customWidth defaults
+  let cw: number | undefined;
+  if (type === ObjectType.STAGE) cw = 6;
+  else if (type === ObjectType.RED_CARPET) cw = 1.5;
+  else if (type === ObjectType.TRUSS_STRAIGHT) cw = 3;
+  else if (type === ObjectType.DANCE_FLOOR) cw = 4;
+  else if (type === ObjectType.LED_WALL) cw = 4;
+  else if (type === ObjectType.PROJECTION_SCREEN) cw = 3;
+  else if (type === ObjectType.RECEPTION_DESK) cw = 1.8;
+
+  // customDepth defaults
+  let cd: number | undefined;
+  if (type === ObjectType.STAGE) cd = 4;
+  else if (type === ObjectType.RED_CARPET) cd = 10;
+  else if (type === ObjectType.DANCE_FLOOR) cd = 4;
+
+  // customHeight defaults
+  let ch: number | undefined;
+  if (type === ObjectType.STAGE) ch = 0.5;
+  else if (type === ObjectType.LED_WALL) ch = 2.25;
+  else if (type === ObjectType.PROJECTION_SCREEN) ch = 1.7;
 
   return {
     id: crypto.randomUUID(),
@@ -142,13 +173,14 @@ export const createObjectConfig = (
     color: defaultColor,
     label: '',
     tableCloth: isTable ? 'linen' : undefined,
-    customSize: type === ObjectType.ROUND_TABLE ? 6 : undefined,
-    customWidth: type === ObjectType.STAGE ? 6 : (type === ObjectType.RED_CARPET ? 1.5 : undefined),
-    customDepth: type === ObjectType.STAGE ? 4 : (type === ObjectType.RED_CARPET ? 10 : undefined),
-    customHeight: type === ObjectType.STAGE ? 0.5 : undefined,
+    customSize: type === ObjectType.ROUND_TABLE ? 6 : (type === ObjectType.RECT_TABLE ? 6 : undefined),
+    customWidth: cw,
+    customDepth: cd,
+    customHeight: ch,
     hasBackdrop: type === ObjectType.STAGE ? false : undefined,
     intensity: isLight ? 1.5 : undefined,
     standType: 'TRIPOD',
+    arrayCount: type === ObjectType.SPEAKER_LINE_ARRAY ? 4 : undefined,
     stairs: type === ObjectType.STAGE ? [{ id: crypto.randomUUID(), side: 'front', offset: 0, width: 2 }] : undefined
   };
 };

@@ -9,6 +9,23 @@ import { BanquetObject, HallConfig, ObjectType, DrawingPath } from '../types';
 import { CameraRig } from './CameraRig';
 import { ObjectWrapper, MultiSelectControls } from './ObjectWrapper';
 
+/** Check if (x,z) falls on any stage and return the stage top Y, or 0 */
+function getElevation(x: number, z: number, objects: BanquetObject[]): number {
+  for (const obj of objects) {
+    if (obj.type !== ObjectType.STAGE) continue;
+    const w = (obj.customWidth || 6) / 2;
+    const d = (obj.customDepth || 4) / 2;
+    const h = obj.customHeight || 0.5;
+    // Stage XZ bounds (centered at obj.position)
+    const sx = obj.position.x;
+    const sz = obj.position.z;
+    if (x >= sx - w && x <= sx + w && z >= sz - d && z <= sz + d) {
+      return h;
+    }
+  }
+  return 0;
+}
+
 interface SceneCanvasProps {
   mode: 'EDIT' | 'VIEW';
   hall: HallConfig;
@@ -59,7 +76,8 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
   const handleFloorPointerUp = (e: any) => {
     if (draggedType) {
       e.stopPropagation();
-      addObject(draggedType, { x: e.point.x, y: 0, z: e.point.z });
+      const y = getElevation(e.point.x, e.point.z, objects);
+      addObject(draggedType, { x: e.point.x, y, z: e.point.z });
       setDraggedType(null);
       return;
     }
@@ -72,7 +90,8 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
   const handleObjectDrop = (e: any) => {
     if (draggedType) {
       e.stopPropagation();
-      addObject(draggedType, { x: e.point.x, y: e.point.y, z: e.point.z });
+      const y = getElevation(e.point.x, e.point.z, objects);
+      addObject(draggedType, { x: e.point.x, y, z: e.point.z });
       setDraggedType(null);
     }
   };

@@ -72,21 +72,11 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew }) => 
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white overflow-auto">
+    <div className="min-h-screen bg-[#f5f5f7] text-slate-800 overflow-auto">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,300&display=swap');
         .scene-mgr * { font-family: 'DM Sans', sans-serif; }
         .scene-mgr { position: relative; }
-        .scene-mgr::before {
-          content: '';
-          position: fixed;
-          inset: 0;
-          background:
-            radial-gradient(ellipse 80% 60% at 50% -10%, rgba(56,100,220,0.15), transparent),
-            radial-gradient(ellipse 50% 40% at 80% 80%, rgba(120,60,200,0.08), transparent);
-          pointer-events: none;
-          z-index: 0;
-        }
         @keyframes fadeSlideUp {
           from { opacity: 0; transform: translateY(16px); }
           to { opacity: 1; transform: translateY(0); }
@@ -97,17 +87,17 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew }) => 
         }
         .scene-card {
           position: relative;
-          background: linear-gradient(145deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
-          border: 1px solid rgba(255,255,255,0.06);
+          background: #ffffff;
+          border: 1px solid rgba(0,0,0,0.06);
           border-radius: 16px;
           overflow: hidden;
           cursor: pointer;
           transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .scene-card:hover {
-          border-color: rgba(255,255,255,0.15);
+          border-color: rgba(0,0,0,0.1);
           transform: translateY(-4px);
-          box-shadow: 0 20px 40px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08);
+          box-shadow: 0 12px 32px -8px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04);
         }
         .scene-card:hover .card-thumb {
           transform: scale(1.05);
@@ -132,41 +122,41 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew }) => 
           transition: opacity 0.2s ease;
         }
         .new-card {
-          background: linear-gradient(145deg, rgba(56,100,220,0.12), rgba(120,60,200,0.08));
-          border: 1px dashed rgba(56,100,220,0.3);
+          background: #ffffff;
+          border: 1px dashed rgba(56,100,220,0.35);
           border-radius: 16px;
           cursor: pointer;
           transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .new-card:hover {
           border-color: rgba(56,100,220,0.6);
-          background: linear-gradient(145deg, rgba(56,100,220,0.18), rgba(120,60,200,0.12));
+          background: rgba(56,100,220,0.04);
           transform: translateY(-4px);
-          box-shadow: 0 20px 40px -12px rgba(56,100,220,0.2);
+          box-shadow: 0 12px 32px -8px rgba(56,100,220,0.15);
         }
         .new-card:hover .plus-ring {
           transform: scale(1.1);
           border-color: rgba(56,100,220,0.8);
-          background: rgba(56,100,220,0.15);
+          background: rgba(56,100,220,0.1);
         }
         .plus-ring {
           transition: all 0.3s ease;
         }
         .create-input {
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.12);
+          background: #f8f9fb;
+          border: 1px solid rgba(0,0,0,0.1);
           border-radius: 12px;
-          color: white;
+          color: #1e293b;
           outline: none;
           transition: border-color 0.2s ease;
         }
         .create-input:focus {
           border-color: rgba(56,100,220,0.6);
-          box-shadow: 0 0 0 3px rgba(56,100,220,0.15);
+          box-shadow: 0 0 0 3px rgba(56,100,220,0.1);
         }
-        .create-input::placeholder { color: rgba(255,255,255,0.3); }
+        .create-input::placeholder { color: rgba(0,0,0,0.3); }
         .gradient-text {
-          background: linear-gradient(135deg, #ffffff 0%, rgba(255,255,255,0.6) 100%);
+          background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
           background-clip: text;
@@ -182,12 +172,12 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew }) => 
             </div>
             <h1 className="text-2xl font-bold gradient-text tracking-tight">Banquet 3D</h1>
           </div>
-          <p className="text-sm text-white/40 ml-12">場景管理</p>
+          <p className="text-sm text-slate-400 ml-12">場景管理</p>
         </div>
 
         {/* Error */}
         {error && (
-          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 text-red-300 text-sm rounded-xl card-animate">
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl card-animate">
             {error}
           </div>
         )}
@@ -198,7 +188,7 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew }) => 
           <div className="card-animate" style={stagger(0)}>
             {creating ? (
               <div className="new-card p-5 flex flex-col gap-3" style={{ borderStyle: 'solid', borderColor: 'rgba(56,100,220,0.4)' }}>
-                <p className="text-sm font-medium text-white/70">新場景名稱</p>
+                <p className="text-sm font-medium text-slate-600">新場景名稱</p>
                 <input
                   ref={inputRef}
                   value={newName}
@@ -219,7 +209,7 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew }) => 
                   </button>
                   <button
                     onClick={() => { setCreating(false); setNewName(''); }}
-                    className="px-4 py-2 text-white/40 hover:text-white/70 text-sm transition-colors"
+                    className="px-4 py-2 text-slate-400 hover:text-slate-600 text-sm transition-colors"
                   >
                     取消
                   </button>
@@ -234,8 +224,8 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew }) => 
                   <Plus className="w-5 h-5 text-blue-400" />
                 </div>
                 <div className="text-center">
-                  <p className="text-sm font-medium text-white/70">新增場景</p>
-                  <p className="text-xs text-white/30 mt-0.5">建立空白場景</p>
+                  <p className="text-sm font-medium text-slate-600">新增場景</p>
+                  <p className="text-xs text-slate-400 mt-0.5">建立空白場景</p>
                 </div>
               </button>
             )}
@@ -247,10 +237,10 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew }) => 
               {[0, 1, 2].map(i => (
                 <div key={i} className="card-animate" style={stagger(i + 1)}>
                   <div className="scene-card p-0">
-                    <div className="h-28 bg-white/[0.03] animate-pulse" />
+                    <div className="h-28 bg-slate-100 animate-pulse" />
                     <div className="p-4 space-y-2">
-                      <div className="h-4 w-24 bg-white/[0.06] rounded animate-pulse" />
-                      <div className="h-3 w-16 bg-white/[0.04] rounded animate-pulse" />
+                      <div className="h-4 w-24 bg-slate-100 rounded animate-pulse" />
+                      <div className="h-3 w-16 bg-slate-50 rounded animate-pulse" />
                     </div>
                   </div>
                 </div>
@@ -266,16 +256,16 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew }) => 
                 onClick={() => onLoad(scene.id)}
               >
                 {/* Thumbnail */}
-                <div className="h-28 bg-gradient-to-br from-white/[0.04] to-white/[0.01] overflow-hidden relative">
+                <div className="h-28 bg-gradient-to-br from-slate-50 to-slate-100 overflow-hidden relative">
                   {scene.thumbnail ? (
                     <img src={scene.thumbnail} alt="" className="card-thumb w-full h-full object-cover" />
                   ) : (
                     <div className="card-thumb w-full h-full flex items-center justify-center">
                       <div className="relative">
-                        <div className="w-14 h-10 rounded border border-white/[0.08] bg-white/[0.03] flex items-center justify-center">
-                          <Sparkles className="w-4 h-4 text-white/15" />
+                        <div className="w-14 h-10 rounded border border-slate-200 bg-white flex items-center justify-center">
+                          <Sparkles className="w-4 h-4 text-slate-300" />
                         </div>
-                        <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-sm bg-blue-500/20 border border-blue-500/30" />
+                        <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-sm bg-blue-100 border border-blue-300" />
                       </div>
                     </div>
                   )}
@@ -284,16 +274,16 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew }) => 
                 {/* Info */}
                 <div className="p-4 flex items-start justify-between">
                   <div className="min-w-0 flex-1">
-                    <h3 className="text-sm font-medium text-white/85 truncate">{scene.name}</h3>
+                    <h3 className="text-sm font-medium text-slate-700 truncate">{scene.name}</h3>
                     <div className="flex items-center gap-1.5 mt-1.5">
-                      <Clock className="w-3 h-3 text-white/25" />
-                      <span className="text-xs text-white/30">{formatDate(scene.updated_at)}</span>
+                      <Clock className="w-3 h-3 text-slate-300" />
+                      <span className="text-xs text-slate-400">{formatDate(scene.updated_at)}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 ml-2">
                     <button
                       onClick={(e) => handleDelete(e, scene.id)}
-                      className="delete-btn p-1.5 rounded-lg text-white/20 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                      className="delete-btn p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
                       title="刪除"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -311,11 +301,11 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew }) => 
           {!loading && scenes.length === 0 && (
             <div className="card-animate col-span-full sm:col-span-1 lg:col-span-2 flex items-center justify-center py-12" style={stagger(1)}>
               <div className="text-center">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center">
-                  <Box className="w-6 h-6 text-white/15" />
+                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center">
+                  <Box className="w-6 h-6 text-slate-300" />
                 </div>
-                <p className="text-sm text-white/30">還沒有場景</p>
-                <p className="text-xs text-white/20 mt-1">點左側新增你的第一個場景</p>
+                <p className="text-sm text-slate-400">還沒有場景</p>
+                <p className="text-xs text-slate-300 mt-1">點左側新增你的第一個場景</p>
               </div>
             </div>
           )}

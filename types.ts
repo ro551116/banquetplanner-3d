@@ -3,7 +3,13 @@ export enum ObjectType {
   ROUND_TABLE = 'ROUND_TABLE',
   RECT_TABLE = 'RECT_TABLE',
   STAGE = 'STAGE',
-  RED_CARPET = 'RED_CARPET', // New
+  RED_CARPET = 'RED_CARPET',
+  COCKTAIL_TABLE = 'COCKTAIL_TABLE', // Standing height table
+  PODIUM = 'PODIUM',               // Lectern
+  DANCE_FLOOR = 'DANCE_FLOOR',     // Flat dance area
+  PROJECTION_SCREEN = 'PROJECTION_SCREEN',
+  LED_WALL = 'LED_WALL',           // Video wall
+  RECEPTION_DESK = 'RECEPTION_DESK', // Check-in desk
   DECOR = 'DECOR',
   
   // Audio
@@ -12,11 +18,23 @@ export enum ObjectType {
   SPEAKER_SUB = 'SPEAKER_SUB',     // Subwoofer
   SPEAKER_COLUMN = 'SPEAKER_COLUMN', // Column Array
 
+  // Audio - new
+  SPEAKER_LINE_ARRAY = 'SPEAKER_LINE_ARRAY', // Line Array (flown/stacked)
+
   // Lighting
   LIGHT_PAR = 'LIGHT_PAR',         // LED Par
   LIGHT_MOVING = 'LIGHT_MOVING',   // Moving Head
   LIGHT_STAND = 'LIGHT_STAND',     // T-Bar Stand with 4 Pars
-  
+  // Lighting - new
+  LIGHT_FOLLOWSPOT = 'LIGHT_FOLLOWSPOT', // Follow Spot
+  LIGHT_WASH = 'LIGHT_WASH',       // LED Wash Panel
+  LIGHT_STROBE = 'LIGHT_STROBE',   // Strobe / Blinder
+
+  // Rigging & Equipment
+  TRUSS_STRAIGHT = 'TRUSS_STRAIGHT', // Box Truss Section
+  EQUIPMENT_MIXER = 'EQUIPMENT_MIXER', // FOH Mixer Console
+  EFFECTS_FOG = 'EFFECTS_FOG',     // Fog / Haze Machine
+
   // Legacy
   SPEAKER = 'SPEAKER',
   LIGHT = 'LIGHT'
@@ -54,6 +72,7 @@ export interface BanquetObject {
   hasBackdrop?: boolean; // Stage Backdrop Toggle
   intensity?: number; // Light intensity (0-10 range ideally)
   standType?: 'TRIPOD' | 'PLATE'; // Stand style
+  arrayCount?: number; // Line array box count (2-8)
   stairs?: StairConfig[]; // Array of stairs attached to the stage
   tableCloth?: TableCloth; // Table cloth material type
 }

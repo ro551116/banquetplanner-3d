@@ -1,8 +1,24 @@
 import React, { useRef, useEffect } from 'react';
 import { TransformControls } from '@react-three/drei';
 import * as THREE from 'three';
-import { BanquetObject } from '../types';
+import { BanquetObject, ObjectType } from '../types';
 import { BanquetObjectModel } from './BanquetObjects';
+
+/** Check if (x,z) falls on any stage and return the stage top Y, or 0 */
+function getElevation(x: number, z: number, objects: BanquetObject[]): number {
+  for (const obj of objects) {
+    if (obj.type !== ObjectType.STAGE) continue;
+    const w = (obj.customWidth || 6) / 2;
+    const d = (obj.customDepth || 4) / 2;
+    const h = obj.customHeight || 0.5;
+    const sx = obj.position.x;
+    const sz = obj.position.z;
+    if (x >= sx - w && x <= sx + w && z >= sz - d && z <= sz + d) {
+      return h;
+    }
+  }
+  return 0;
+}
 
 // --- Object Wrapper ---
 interface ObjectWrapperProps {
@@ -19,7 +35,12 @@ export const ObjectWrapper = React.memo(React.forwardRef<THREE.Group, ObjectWrap
       <group
         ref={ref}
         position={[obj.position.x, obj.position.y, obj.position.z]}
-        rotation={[obj.rotation.x, obj.rotation.y, obj.rotation.z]}
+        rotation={[
+          // Lights & speakers: rotation.x is head tilt only (passed via tilt prop), not whole-object rotation
+          (obj.type.includes('LIGHT') || obj.type.includes('SPEAKER')) ? 0 : obj.rotation.x,
+          obj.rotation.y,
+          obj.rotation.z
+        ]}
         onPointerDown={onPointerDown}
         onPointerUp={onPointerUp}
       >
@@ -38,6 +59,7 @@ export const ObjectWrapper = React.memo(React.forwardRef<THREE.Group, ObjectWrap
           standType={obj.standType}
           stairs={obj.stairs}
           tableCloth={obj.tableCloth}
+          arrayCount={obj.arrayCount}
         />
       </group>
     );
@@ -112,9 +134,19 @@ export const MultiSelectControls: React.FC<MultiSelectControlsProps> = ({
     if (delta.lengthSq() < 0.0001) return;
 
     const updates: Record<string, Partial<BanquetObject>> = {};
+    // Get all non-selected objects (stages) for elevation check
+    const otherObjects = objects.filter(o => !selectedIds.has(o.id));
     selectedIds.forEach(id => {
       const objState = objects.find(o => o.id === id);
-      if (objState) {
+      if (objState && objState.type !== ObjectType.STAGE) {
+        const newX = objState.position.x + delta.x;
+        const newZ = objState.position.z + delta.z;
+        const elevation = getElevation(newX, newZ, otherObjects);
+        updates[id] = {
+          position: { x: newX, y: elevation, z: newZ }
+        };
+      } else if (objState) {
+        // Stages stay on the ground
         updates[id] = {
           position: {
             x: objState.position.x + delta.x,
