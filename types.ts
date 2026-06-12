@@ -59,7 +59,14 @@ export interface StairConfig {
 export type TableCloth = 'linen' | 'satin' | 'velvet';
 
 export type TrussSegmentLength = 200 | 150 | 100 | 50 | 20 | 10; // cm
-export type TrussStructureKind = 'TOWER' | 'GOALPOST' | 'BACKDROP';
+export type TrussStructureKind =
+  | 'TOWER'
+  | 'GOALPOST'
+  | 'BACKDROP'
+  | 'BOX'
+  | 'LSHAPE'
+  | 'TSHAPE'
+  | 'MULTI_BAY';
 
 export interface TrussMember {
   segments: TrussSegmentLength[];
@@ -68,8 +75,13 @@ export interface TrussMember {
 export interface TrussStructureConfig {
   kind: TrussStructureKind;
   legs: TrussMember;
+  legsRight?: TrussMember;
   beam?: TrussMember;
+  beamRight?: TrussMember;
+  bottomBeam?: TrussMember;
   depthMember?: TrussMember;
+  bayCount?: number;
+  beamAttachCm?: number;
   quantity: number;
   title: string;
   groupId?: string;

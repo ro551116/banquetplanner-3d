@@ -2,6 +2,10 @@ import React from 'react';
 import { TrussMember, TrussSegmentLength, TrussStructureConfig } from '../types';
 import {
   formatTrussTitle,
+  getEffectiveBayCount,
+  getEffectiveBeamAttachCm,
+  getEffectiveRightLeg,
+  getMemberLength,
   getTrussDimensions,
   TRUSS_SEGMENT_COLORS,
   TRUSS_SEGMENT_LENGTHS,
@@ -28,13 +32,16 @@ const drawMemberSegments = (
   axis: 'x' | 'y',
   scale: number,
   keyPrefix: string,
+  direction: 1 | -1 = 1,
 ) => {
   let offset = 0;
   const elements: React.ReactNode[] = [];
 
   member.segments.forEach((segment, index) => {
     const segmentPx = segment * scale;
-    const x = axis === 'x' ? startX + offset : startX - BAR / 2;
+    const x = axis === 'x'
+      ? (direction === 1 ? startX + offset : startX - offset - segmentPx)
+      : startX - BAR / 2;
     const y = axis === 'x' ? startY - BAR / 2 : startY - offset - segmentPx;
     const w = axis === 'x' ? segmentPx : BAR;
     const h = axis === 'x' ? BAR : segmentPx;
@@ -67,7 +74,7 @@ const drawMemberSegments = (
     );
 
     if (index < member.segments.length - 1) {
-      const cx = axis === 'x' ? startX + offset + segmentPx : startX;
+      const cx = axis === 'x' ? startX + direction * (offset + segmentPx) : startX;
       const cy = axis === 'x' ? startY : startY - offset - segmentPx;
       elements.push(
         <rect
@@ -141,7 +148,6 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
   const contentHeight = contentBottom - contentTop;
   const frontWidth = hasSideView ? 560 : 900;
   const sideWidth = hasSideView ? 280 : 0;
-  // 正視圖與側視圖共用同一比例尺，等高的結構在兩張圖中必須等高
   const sharedScale = Math.min(
     frontWidth / Math.max(120, dims.widthCm + 80),
     contentHeight / Math.max(120, dims.heightCm + 80),
@@ -155,15 +161,35 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
   const rightX = frontCenterX + frontDrawWidth / 2;
   const baseY = contentBottom - 18;
   const topY = baseY - dims.heightCm * frontScale;
+  const bottomBeamY = baseY - BAR / 2;
   const sideX = contentLeft + frontWidth + 112;
   const sideDepthPx = (dims.depthCm || 0) * sideScale;
   const sideBaseY = contentBottom - 18;
   const sideTopY = sideBaseY - dims.heightCm * sideScale;
+  const rightLeg = getEffectiveRightLeg(config);
+  const leftBeamCm = getMemberLength(config.beam);
+  const attachY = baseY - getEffectiveBeamAttachCm(config) * frontScale;
+  const bayCount = getEffectiveBayCount(config);
+  const tColumnX = config.kind === 'TSHAPE'
+    ? leftX + leftBeamCm * frontScale
+    : frontCenterX;
 
   const displayedConfig = {
     ...config,
     quantity: quantityOverride ?? config.quantity,
   };
+
+  const renderTwoLegTopBeam = () => (
+    <g>
+      {drawMemberSegments(config.legs, leftX, baseY, 'y', frontScale, 'left-leg')}
+      {drawMemberSegments(rightLeg, rightX, baseY, 'y', frontScale, 'right-leg')}
+      {config.beam && drawMemberSegments(config.beam, leftX, topY, 'x', frontScale, 'beam')}
+      <Joint x={leftX} y={topY} />
+      <Joint x={rightX} y={topY} />
+      <BasePlate x={leftX} y={baseY + 14} />
+      <BasePlate x={rightX} y={baseY + 14} />
+    </g>
+  );
 
   return (
     <svg
@@ -185,20 +211,57 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
       <line x1={226} y1={84} x2={226} y2={660} stroke="#ddd" strokeWidth={2} />
 
       <ViewLabel x={frontCenterX} y={86}>正視圖</ViewLabel>
-      {config.kind === 'TOWER' ? (
+      {config.kind === 'TOWER' && (
         <g>
           {drawMemberSegments(config.legs, frontCenterX, baseY, 'y', frontScale, 'tower-leg')}
           <BasePlate x={frontCenterX} y={baseY + 14} />
         </g>
-      ) : (
+      )}
+
+      {(config.kind === 'GOALPOST' || config.kind === 'BACKDROP') && renderTwoLegTopBeam()}
+
+      {config.kind === 'BOX' && (
         <g>
-          {drawMemberSegments(config.legs, leftX, baseY, 'y', frontScale, 'left-leg')}
-          {drawMemberSegments(config.legs, rightX, baseY, 'y', frontScale, 'right-leg')}
-          {config.beam && drawMemberSegments(config.beam, leftX, topY, 'x', frontScale, 'beam')}
-          <Joint x={leftX} y={topY} />
-          <Joint x={rightX} y={topY} />
+          {renderTwoLegTopBeam()}
+          {config.bottomBeam && drawMemberSegments(config.bottomBeam, leftX, bottomBeamY, 'x', frontScale, 'bottom-beam')}
+          <Joint x={leftX} y={bottomBeamY} />
+          <Joint x={rightX} y={bottomBeamY} />
+        </g>
+      )}
+
+      {config.kind === 'LSHAPE' && (
+        <g>
+          {drawMemberSegments(config.legs, leftX, baseY, 'y', frontScale, 'l-leg')}
+          {config.beam && drawMemberSegments(config.beam, leftX, attachY, 'x', frontScale, 'l-beam')}
+          <Joint x={leftX} y={attachY} />
           <BasePlate x={leftX} y={baseY + 14} />
-          <BasePlate x={rightX} y={baseY + 14} />
+        </g>
+      )}
+
+      {config.kind === 'TSHAPE' && (
+        <g>
+          {drawMemberSegments(config.legs, tColumnX, baseY, 'y', frontScale, 't-leg')}
+          {config.beam && drawMemberSegments(config.beam, tColumnX, attachY, 'x', frontScale, 't-left-beam', -1)}
+          {config.beamRight && drawMemberSegments(config.beamRight, tColumnX, attachY, 'x', frontScale, 't-right-beam')}
+          <Joint x={tColumnX - COUPLER * 0.35} y={attachY} />
+          <Joint x={tColumnX + COUPLER * 0.35} y={attachY} />
+          <BasePlate x={tColumnX} y={baseY + 14} />
+        </g>
+      )}
+
+      {config.kind === 'MULTI_BAY' && (
+        <g>
+          {config.beam && drawMemberSegments(config.beam, leftX, topY, 'x', frontScale, 'multi-beam')}
+          {Array.from({ length: bayCount + 1 }).map((_, index) => {
+            const x = leftX + (frontDrawWidth * index) / bayCount;
+            return (
+              <g key={`multi-column-${index}`}>
+                {drawMemberSegments(config.legs, x, baseY, 'y', frontScale, `multi-leg-${index}`)}
+                <Joint x={x} y={topY} />
+                <BasePlate x={x} y={baseY + 14} />
+              </g>
+            );
+          })}
         </g>
       )}
 
@@ -214,7 +277,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
       )}
 
       <text x={frontCenterX} y={690} textAnchor="middle" fontSize={16} fill="#444">
-        W {config.kind === 'TOWER' ? 30 : dims.widthCm}cm × H {dims.heightCm}cm
+        W {dims.widthCm}cm × H {dims.heightCm}cm
       </text>
       {hasSideView && (
         <text x={sideX + sideDepthPx / 2} y={690} textAnchor="middle" fontSize={16} fill="#444">

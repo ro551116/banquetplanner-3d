@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Box, Clock, Sparkles, ArrowRight } from 'lucide-react';
+import { Plus, Trash2, Box, Clock, Sparkles, ArrowRight, ArrowLeft } from 'lucide-react';
 import { scenesApi, SceneMeta } from '../services/scenesApi';
 
 interface SceneManagerProps {
   onLoad: (sceneId: string) => void;
   onNew: (sceneId: string) => void;
-  onOpenTrussStudio: () => void;
+  onBackHome: () => void;
 }
 
 /* Stagger delay helper */
 const stagger = (i: number) => ({ animationDelay: `${80 + i * 60}ms` });
 
-export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew, onOpenTrussStudio }) => {
+export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew, onBackHome }) => {
   const [scenes, setScenes] = useState<SceneMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -168,12 +168,19 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew, onOpe
         {/* Header */}
         <div className="card-animate mb-10" style={{ animationDelay: '0ms' }}>
           <div className="flex items-center gap-3 mb-2">
+            <button
+              onClick={onBackHome}
+              className="w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 flex items-center justify-center"
+              title="返回首頁"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
               <Box className="w-4.5 h-4.5 text-white" strokeWidth={2.5} />
             </div>
             <h1 className="text-2xl font-bold gradient-text tracking-tight">Banquet 3D</h1>
           </div>
-          <p className="text-sm text-slate-400 ml-12">場景管理</p>
+          <p className="text-sm text-slate-400 ml-[6rem]">場景管理</p>
         </div>
 
         {/* Error */}
@@ -182,16 +189,6 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew, onOpe
             {error}
           </div>
         )}
-
-        <div className="card-animate mb-5" style={stagger(0)}>
-          <button
-            onClick={onOpenTrussStudio}
-            className="w-full bg-white border border-blue-100 rounded-lg p-5 text-left shadow-sm hover:border-blue-200 hover:shadow-md transition-all flex items-center justify-between gap-4"
-          >
-            <div className="text-sm font-bold text-slate-700">🛠 Truss 工作台 — 不開場景，直接畫 truss 結構圖</div>
-            <ArrowRight className="w-4 h-4 text-blue-400 shrink-0" />
-          </button>
-        </div>
 
         {/* Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

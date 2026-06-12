@@ -1,4 +1,4 @@
-import { BanquetObject, ObjectType, TrussMember, TrussSegmentLength, TrussStructureConfig } from './types';
+import { BanquetObject, ObjectType, TrussMember, TrussSegmentLength, TrussStructureConfig, TrussStructureKind } from './types';
 
 export const TRUSS_SEGMENT_LENGTHS: TrussSegmentLength[] = [200, 150, 100, 50, 20, 10];
 
@@ -40,6 +40,26 @@ const EMPTY_SEGMENT_COUNTS: Record<TrussSegmentLength, number> = {
 };
 
 const clampQuantity = (quantity?: number) => Math.max(1, Math.round(quantity || 1));
+const clampBayCount = (bayCount?: number) => Math.min(6, Math.max(2, Math.round(bayCount || 2)));
+
+const cloneMember = (member?: TrussMember): TrussMember | undefined => (
+  member ? { segments: [...member.segments] } : undefined
+);
+
+export const getEffectiveRightLeg = (config: TrussStructureConfig): TrussMember => (
+  config.legsRight || config.legs
+);
+
+export const getEffectiveBayCount = (config: TrussStructureConfig): number => (
+  clampBayCount(config.bayCount)
+);
+
+export const getEffectiveBeamAttachCm = (config: TrussStructureConfig): number => {
+  const legHeight = getMemberLength(config.legs);
+  const attach = config.beamAttachCm ?? legHeight;
+  if (!Number.isFinite(attach)) return legHeight;
+  return Math.max(0, Math.round(attach));
+};
 
 export const sanitizeMember = (member?: TrussMember): TrussMember => ({
   segments: (member?.segments || []).filter((length): length is TrussSegmentLength =>
@@ -74,29 +94,85 @@ export const createDefaultTrussConfig = (
   depthCm = 125,
   quantity = 1,
 ): TrussStructureConfig => {
-  const beam = kind === 'TOWER' ? undefined : { segments: fitSegments(widthCm) };
+  const halfWidth = Math.max(10, Math.round(widthCm / 2));
+  const legs = { segments: fitSegments(heightCm) };
+  const fittedHeightCm = getMemberLength(legs);
+  const beam = kind === 'TOWER' ? undefined : { segments: fitSegments(kind === 'TSHAPE' ? halfWidth : widthCm) };
+  const beamRight = kind === 'TSHAPE' ? { segments: fitSegments(halfWidth) } : undefined;
+  const bottomBeam = kind === 'BOX' ? { segments: fitSegments(widthCm) } : undefined;
   const depthMember = kind === 'BACKDROP' ? { segments: fitSegments(depthCm) } : undefined;
 
   return {
     kind,
-    legs: { segments: fitSegments(heightCm) },
+    legs,
     beam,
+    beamRight,
+    bottomBeam,
     depthMember,
+    bayCount: kind === 'MULTI_BAY' ? 2 : undefined,
+    beamAttachCm: kind === 'LSHAPE' || kind === 'TSHAPE' ? fittedHeightCm : undefined,
     quantity: clampQuantity(quantity),
     title,
   };
 };
 
 export const getTrussDimensions = (config: TrussStructureConfig): TrussDimensions => {
-  const heightCm = getMemberLength(config.legs);
+  const leftHeight = getMemberLength(config.legs);
+  const rightHeight = (
+    config.kind === 'GOALPOST' ||
+    config.kind === 'BACKDROP' ||
+    config.kind === 'BOX'
+  ) ? getMemberLength(getEffectiveRightLeg(config)) : 0;
+  const attachHeight = (
+    config.kind === 'LSHAPE' ||
+    config.kind === 'TSHAPE'
+  ) ? getEffectiveBeamAttachCm(config) : 0;
+  const heightCm = Math.max(leftHeight, rightHeight, attachHeight);
   const beamLength = getMemberLength(config.beam);
+  const beamRightLength = getMemberLength(config.beamRight);
   const depthLength = getMemberLength(config.depthMember);
+  const widthCm = (() => {
+    switch (config.kind) {
+      case 'TOWER':
+        return 30;
+      case 'TSHAPE':
+        return beamLength + beamRightLength;
+      case 'LSHAPE':
+      case 'MULTI_BAY':
+      case 'GOALPOST':
+      case 'BACKDROP':
+      case 'BOX':
+      default:
+        return beamLength;
+    }
+  })();
 
   return {
-    widthCm: config.kind === 'TOWER' ? 30 : beamLength,
+    widthCm,
     heightCm,
     depthCm: config.kind === 'BACKDROP' ? depthLength : undefined,
   };
+};
+
+const getKindSuffix = (kind: TrussStructureKind, quantity: number, bayCount?: number): string => {
+  const quantityText = quantity > 1 ? `×${quantity}座` : '';
+
+  switch (kind) {
+    case 'GOALPOST':
+    case 'BACKDROP':
+      return `ㄇTRUSS${quantityText}`;
+    case 'BOX':
+      return `口字TRUSS${quantityText}`;
+    case 'LSHAPE':
+      return `L型TRUSS${quantityText}`;
+    case 'TSHAPE':
+      return `T型TRUSS${quantityText}`;
+    case 'MULTI_BAY':
+      return `連排ㄇTRUSS×${clampBayCount(bayCount)}跨${quantityText}`;
+    case 'TOWER':
+    default:
+      return `TRUSS${quantityText}`;
+  }
 };
 
 export const formatTrussTitle = (config: TrussStructureConfig, quantityOverride?: number): string => {
@@ -106,9 +182,7 @@ export const formatTrussTitle = (config: TrussStructureConfig, quantityOverride?
   const dimensionText = config.kind === 'TOWER'
     ? `外徑H${dims.heightCm}`
     : `外徑W${dims.widthCm}×H${dims.heightCm}${config.kind === 'BACKDROP' ? `×D${dims.depthCm || 0}` : ''}`;
-  const suffix = config.kind === 'GOALPOST' || config.kind === 'BACKDROP'
-    ? `ㄇTRUSS${quantity > 1 ? `×${quantity}座` : ''}`
-    : `TRUSS${quantity > 1 ? `×${quantity}座` : ''}`;
+  const suffix = getKindSuffix(config.kind, quantity, config.bayCount);
 
   return `${baseTitle} ${dimensionText} ${suffix}`;
 };
@@ -132,21 +206,63 @@ export const calculateTrussBom = (config: TrussStructureConfig, quantityOverride
     couplers: 0,
     basePlates: 0,
   };
+  const bayCount = getEffectiveBayCount(config);
 
-  const legCount = config.kind === 'TOWER' ? 1 : 2;
-  addMemberToBom(bom, config.legs, legCount * quantity);
+  switch (config.kind) {
+    case 'TOWER':
+      addMemberToBom(bom, config.legs, quantity);
+      bom.basePlates += quantity;
+      break;
 
-  if (config.kind !== 'TOWER') {
-    addMemberToBom(bom, config.beam, quantity);
-    bom.couplers += 2 * quantity; // column-to-beam joints
-    bom.basePlates += 2 * quantity;
-  } else {
-    bom.basePlates += quantity;
-  }
+    case 'LSHAPE':
+      addMemberToBom(bom, config.legs, quantity);
+      addMemberToBom(bom, config.beam, quantity);
+      bom.couplers += quantity;
+      bom.basePlates += quantity;
+      break;
 
-  if (config.kind === 'BACKDROP') {
-    addMemberToBom(bom, config.depthMember, 2 * quantity);
-    bom.couplers += 2 * quantity; // depth side brace joints
+    case 'TSHAPE':
+      addMemberToBom(bom, config.legs, quantity);
+      addMemberToBom(bom, config.beam, quantity);
+      addMemberToBom(bom, config.beamRight, quantity);
+      bom.couplers += 2 * quantity;
+      bom.basePlates += quantity;
+      break;
+
+    case 'MULTI_BAY':
+      addMemberToBom(bom, config.legs, (bayCount + 1) * quantity);
+      addMemberToBom(bom, config.beam, quantity);
+      bom.couplers += (bayCount + 1) * quantity;
+      bom.basePlates += (bayCount + 1) * quantity;
+      break;
+
+    case 'BOX':
+      addMemberToBom(bom, config.legs, quantity);
+      addMemberToBom(bom, getEffectiveRightLeg(config), quantity);
+      addMemberToBom(bom, config.beam, quantity);
+      addMemberToBom(bom, config.bottomBeam, quantity);
+      bom.couplers += 4 * quantity;
+      bom.basePlates += 2 * quantity;
+      break;
+
+    case 'BACKDROP':
+      addMemberToBom(bom, config.legs, quantity);
+      addMemberToBom(bom, getEffectiveRightLeg(config), quantity);
+      addMemberToBom(bom, config.beam, quantity);
+      addMemberToBom(bom, config.depthMember, 2 * quantity);
+      bom.couplers += 2 * quantity; // column-to-beam joints
+      bom.couplers += 2 * quantity; // depth side brace joints retained for old backdrop configs
+      bom.basePlates += 2 * quantity;
+      break;
+
+    case 'GOALPOST':
+    default:
+      addMemberToBom(bom, config.legs, quantity);
+      addMemberToBom(bom, getEffectiveRightLeg(config), quantity);
+      addMemberToBom(bom, config.beam, quantity);
+      bom.couplers += 2 * quantity;
+      bom.basePlates += 2 * quantity;
+      break;
   }
 
   return bom;
@@ -207,6 +323,9 @@ export const summarizeTrussBom = (objects: BanquetObject[]): TrussBom => {
 export const cloneTrussConfig = (config: TrussStructureConfig): TrussStructureConfig => ({
   ...config,
   legs: { segments: [...config.legs.segments] },
-  beam: config.beam ? { segments: [...config.beam.segments] } : undefined,
-  depthMember: config.depthMember ? { segments: [...config.depthMember.segments] } : undefined,
+  legsRight: cloneMember(config.legsRight),
+  beam: cloneMember(config.beam),
+  beamRight: cloneMember(config.beamRight),
+  bottomBeam: cloneMember(config.bottomBeam),
+  depthMember: cloneMember(config.depthMember),
 });

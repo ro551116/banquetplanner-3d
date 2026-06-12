@@ -14,6 +14,7 @@ import { AdvancedAddModal } from './components/AdvancedAddModal';
 import StatusBar from './components/StatusBar';
 import { SceneCanvas } from './components/SceneCanvas';
 import { SceneManager } from './components/SceneManager';
+import { HomeMenu } from './components/HomeMenu';
 import { AddObjectPanel } from './components/AddObjectPanel';
 import { TrussBuilderModal } from './components/TrussBuilderModal';
 import { TrussSheetModal } from './components/TrussSheetModal';
@@ -21,7 +22,7 @@ import { TrussStudio } from './components/TrussStudio';
 
 export default function App() {
   const [sceneId, setSceneId] = useState<string | null>(null);
-  const [view, setView] = useState<'home' | 'trussStudio'>('home');
+  const [view, setView] = useState<'home' | 'scenes' | 'trussStudio'>('home');
   const [mode, setMode] = useState<'EDIT' | 'VIEW'>('EDIT');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [hall, setHall] = useState(INITIAL_HALL);
@@ -61,19 +62,19 @@ export default function App() {
   });
 
   const handleLoadScene = useCallback(async (id: string) => {
-    setView('home');
+    setView('scenes');
     setSceneId(id);
     await sceneIO.loadScene(id);
   }, [sceneIO.loadScene]);
 
   const handleNewScene = useCallback(async (id: string) => {
-    setView('home');
+    setView('scenes');
     setSceneId(id);
     await sceneIO.loadScene(id);
   }, [sceneIO.loadScene]);
 
   const handleBackToList = useCallback(() => {
-    setView('home');
+    setView('scenes');
     setSceneId(null);
   }, []);
 
@@ -161,11 +162,20 @@ export default function App() {
     return <TrussStudio onBack={() => setView('home')} />;
   }
 
-  if (!sceneId) {
+  if (!sceneId && view === 'scenes') {
     return (
       <SceneManager
         onLoad={handleLoadScene}
         onNew={handleNewScene}
+        onBackHome={() => setView('home')}
+      />
+    );
+  }
+
+  if (!sceneId) {
+    return (
+      <HomeMenu
+        onOpenScenes={() => setView('scenes')}
         onOpenTrussStudio={() => setView('trussStudio')}
       />
     );

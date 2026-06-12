@@ -1,7 +1,14 @@
 import React, { useMemo } from 'react';
 import * as THREE from 'three';
 import { TrussMember, TrussSegmentLength, TrussStructureConfig } from '../../types';
-import { getMemberLength, getTrussDimensions, TRUSS_SEGMENT_COLORS } from '../../trussConfig';
+import {
+  getEffectiveBayCount,
+  getEffectiveBeamAttachCm,
+  getEffectiveRightLeg,
+  getMemberLength,
+  getTrussDimensions,
+  TRUSS_SEGMENT_COLORS,
+} from '../../trussConfig';
 import { Highlight } from './shared';
 
 interface TrussStructureModelProps {
@@ -185,11 +192,52 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
 }) => {
   const dims = getTrussDimensions(config);
   const height = toMeters(dims.heightCm);
-  const width = config.kind === 'TOWER' ? 0 : toMeters(getMemberLength(config.beam));
+  const width = config.kind === 'TOWER' ? 0 : toMeters(dims.widthCm);
   const depth = config.kind === 'BACKDROP' ? toMeters(getMemberLength(config.depthMember)) : 0;
   const renderColor = color || '#b8b8c0';
   const leftX = -width / 2;
   const rightX = width / 2;
+  const rightLeg = getEffectiveRightLeg(config);
+  const topY = height + 0.04;
+  const attachY = toMeters(getEffectiveBeamAttachCm(config)) + 0.04;
+  const leftBeamLength = toMeters(getMemberLength(config.beam));
+  const bayCount = getEffectiveBayCount(config);
+  const tColumnX = config.kind === 'TSHAPE' ? leftX + leftBeamLength : 0;
+
+  const renderTwoLegFrame = () => (
+    <>
+      <MemberRenderer
+        member={config.legs}
+        start={new THREE.Vector3(leftX, 0.04, 0)}
+        axis={new THREE.Vector3(0, 1, 0)}
+        schematicColors={schematicColors}
+        color={renderColor}
+        keyPrefix="left-leg"
+      />
+      <MemberRenderer
+        member={rightLeg}
+        start={new THREE.Vector3(rightX, 0.04, 0)}
+        axis={new THREE.Vector3(0, 1, 0)}
+        schematicColors={schematicColors}
+        color={renderColor}
+        keyPrefix="right-leg"
+      />
+      {config.beam && (
+        <MemberRenderer
+          member={config.beam}
+          start={new THREE.Vector3(leftX, topY, 0)}
+          axis={new THREE.Vector3(1, 0, 0)}
+          schematicColors={schematicColors}
+          color={renderColor}
+          keyPrefix="beam"
+        />
+      )}
+      <CouplerCube position={new THREE.Vector3(leftX, topY, 0)} />
+      <CouplerCube position={new THREE.Vector3(rightX, topY, 0)} />
+      <BasePlate x={leftX} z={0} />
+      <BasePlate x={rightX} z={0} />
+    </>
+  );
 
   return (
     <group>
@@ -205,7 +253,29 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
           />
           <BasePlate x={0} z={0} />
         </>
-      ) : (
+      ) : null}
+
+      {(config.kind === 'GOALPOST' || config.kind === 'BACKDROP') && renderTwoLegFrame()}
+
+      {config.kind === 'BOX' && (
+        <>
+          {renderTwoLegFrame()}
+          {config.bottomBeam && (
+            <MemberRenderer
+              member={config.bottomBeam}
+              start={new THREE.Vector3(leftX, 0.04, 0)}
+              axis={new THREE.Vector3(1, 0, 0)}
+              schematicColors={schematicColors}
+              color={renderColor}
+              keyPrefix="bottom-beam"
+            />
+          )}
+          <CouplerCube position={new THREE.Vector3(leftX, 0.04, 0)} />
+          <CouplerCube position={new THREE.Vector3(rightX, 0.04, 0)} />
+        </>
+      )}
+
+      {config.kind === 'LSHAPE' && (
         <>
           <MemberRenderer
             member={config.legs}
@@ -213,30 +283,88 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
             axis={new THREE.Vector3(0, 1, 0)}
             schematicColors={schematicColors}
             color={renderColor}
-            keyPrefix="left-leg"
-          />
-          <MemberRenderer
-            member={config.legs}
-            start={new THREE.Vector3(rightX, 0.04, 0)}
-            axis={new THREE.Vector3(0, 1, 0)}
-            schematicColors={schematicColors}
-            color={renderColor}
-            keyPrefix="right-leg"
+            keyPrefix="l-leg"
           />
           {config.beam && (
             <MemberRenderer
               member={config.beam}
-              start={new THREE.Vector3(leftX, height + 0.04, 0)}
+              start={new THREE.Vector3(leftX, attachY, 0)}
               axis={new THREE.Vector3(1, 0, 0)}
               schematicColors={schematicColors}
               color={renderColor}
-              keyPrefix="beam"
+              keyPrefix="l-beam"
             />
           )}
-          <CouplerCube position={new THREE.Vector3(leftX, height + 0.04, 0)} />
-          <CouplerCube position={new THREE.Vector3(rightX, height + 0.04, 0)} />
+          <CouplerCube position={new THREE.Vector3(leftX, attachY, 0)} />
           <BasePlate x={leftX} z={0} />
-          <BasePlate x={rightX} z={0} />
+        </>
+      )}
+
+      {config.kind === 'TSHAPE' && (
+        <>
+          <MemberRenderer
+            member={config.legs}
+            start={new THREE.Vector3(tColumnX, 0.04, 0)}
+            axis={new THREE.Vector3(0, 1, 0)}
+            schematicColors={schematicColors}
+            color={renderColor}
+            keyPrefix="t-leg"
+          />
+          {config.beam && (
+            <MemberRenderer
+              member={config.beam}
+              start={new THREE.Vector3(tColumnX, attachY, 0)}
+              axis={new THREE.Vector3(-1, 0, 0)}
+              schematicColors={schematicColors}
+              color={renderColor}
+              keyPrefix="t-left-beam"
+            />
+          )}
+          {config.beamRight && (
+            <MemberRenderer
+              member={config.beamRight}
+              start={new THREE.Vector3(tColumnX, attachY, 0)}
+              axis={new THREE.Vector3(1, 0, 0)}
+              schematicColors={schematicColors}
+              color={renderColor}
+              keyPrefix="t-right-beam"
+            />
+          )}
+          <CouplerCube position={new THREE.Vector3(tColumnX - 0.08, attachY, 0)} />
+          <CouplerCube position={new THREE.Vector3(tColumnX + 0.08, attachY, 0)} />
+          <BasePlate x={tColumnX} z={0} />
+        </>
+      )}
+
+      {config.kind === 'MULTI_BAY' && (
+        <>
+          {config.beam && (
+            <MemberRenderer
+              member={config.beam}
+              start={new THREE.Vector3(leftX, topY, 0)}
+              axis={new THREE.Vector3(1, 0, 0)}
+              schematicColors={schematicColors}
+              color={renderColor}
+              keyPrefix="multi-beam"
+            />
+          )}
+          {Array.from({ length: bayCount + 1 }).map((_, index) => {
+            const x = leftX + (width * index) / bayCount;
+            return (
+              <React.Fragment key={`multi-column-${index}`}>
+                <MemberRenderer
+                  member={config.legs}
+                  start={new THREE.Vector3(x, 0.04, 0)}
+                  axis={new THREE.Vector3(0, 1, 0)}
+                  schematicColors={schematicColors}
+                  color={renderColor}
+                  keyPrefix={`multi-leg-${index}`}
+                />
+                <CouplerCube position={new THREE.Vector3(x, topY, 0)} />
+                <BasePlate x={x} z={0} />
+              </React.Fragment>
+            );
+          })}
         </>
       )}
 
@@ -244,7 +372,7 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
         <>
           <MemberRenderer
             member={config.depthMember}
-            start={new THREE.Vector3(leftX, height + 0.04, 0)}
+            start={new THREE.Vector3(leftX, topY, 0)}
             axis={new THREE.Vector3(0, 0, -1)}
             schematicColors={schematicColors}
             color={renderColor}
@@ -252,14 +380,14 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
           />
           <MemberRenderer
             member={config.depthMember}
-            start={new THREE.Vector3(rightX, height + 0.04, 0)}
+            start={new THREE.Vector3(rightX, topY, 0)}
             axis={new THREE.Vector3(0, 0, -1)}
             schematicColors={schematicColors}
             color={renderColor}
             keyPrefix="right-depth"
           />
-          <CouplerCube position={new THREE.Vector3(leftX, height + 0.04, -depth)} />
-          <CouplerCube position={new THREE.Vector3(rightX, height + 0.04, -depth)} />
+          <CouplerCube position={new THREE.Vector3(leftX, topY, -depth)} />
+          <CouplerCube position={new THREE.Vector3(rightX, topY, -depth)} />
         </>
       )}
 
