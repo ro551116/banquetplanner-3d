@@ -1,6 +1,7 @@
 import { useRef, useCallback, useEffect } from 'react';
 import { BanquetObject, HallConfig, DrawingPath } from '../types';
 import { scenesApi } from '../services/scenesApi';
+import { INITIAL_HALL, INITIAL_OBJECTS } from '../constants';
 
 const SAVE_DEBOUNCE = 2000; // ms
 
@@ -23,7 +24,7 @@ export function useSceneIO({
   setSelectedIds, setIsDrawMode, setMode
 }: UseSceneIOParams) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadedRef = useRef(false);
   const saveCountRef = useRef(0);
 
@@ -32,15 +33,19 @@ export function useSceneIO({
     try {
       const scene = await scenesApi.get(id);
       loadedRef.current = false; // prevent auto-save during load
-      if (scene.data.hall) setHall(scene.data.hall);
-      if (scene.data.objects) setObjects(scene.data.objects);
-      if (scene.data.drawings) setDrawings(scene.data.drawings ?? []);
+      const data = scene.data ?? {};
+      setHall(data.hall ?? INITIAL_HALL);
+      setObjects(data.objects ?? INITIAL_OBJECTS);
+      setDrawings(data.drawings ?? []);
+      setSelectedIds(new Set());
+      setIsDrawMode(false);
+      setMode('EDIT');
       // Allow auto-save after a tick
       setTimeout(() => { loadedRef.current = true; saveCountRef.current = 0; }, 100);
     } catch (err) {
       console.error('Load scene failed:', err);
     }
-  }, [setHall, setObjects, setDrawings]);
+  }, [setHall, setObjects, setDrawings, setSelectedIds, setIsDrawMode, setMode]);
 
   // --- Auto-save to API (debounced) ---
   useEffect(() => {

@@ -15,6 +15,7 @@ interface AddObjectPanelProps {
   addObject: (type: ObjectType) => void;
   setDraggedType: (type: ObjectType | null) => void;
   setIsDrawMode: (v: boolean) => void;
+  onOpenTrussBuilder: () => void;
 }
 
 interface ObjectItem {
@@ -70,6 +71,7 @@ const CATEGORIES: Category[] = [
   {
     name: '其他設備',
     items: [
+      { type: ObjectType.TRUSS_STRUCTURE, label: 'Truss 結構', icon: <GripHorizontal className={ICON_CLS} /> },
       { type: ObjectType.TRUSS_STRAIGHT, label: '桁架', icon: <GripHorizontal className={ICON_CLS} /> },
       { type: ObjectType.EQUIPMENT_MIXER, label: '混音台', icon: <Sliders className={ICON_CLS} /> },
       { type: ObjectType.EFFECTS_FOG, label: '煙霧機', icon: <Wind className={ICON_CLS} /> },
@@ -78,7 +80,7 @@ const CATEGORIES: Category[] = [
 ];
 
 export const AddObjectPanel: React.FC<AddObjectPanelProps> = ({
-  isOpen, setIsOpen, addObject, setDraggedType, setIsDrawMode,
+  isOpen, setIsOpen, addObject, setDraggedType, setIsDrawMode, onOpenTrussBuilder,
 }) => {
   const [expandedCats, setExpandedCats] = useState<Set<string>>(
     new Set([CATEGORIES[0].name])
@@ -94,6 +96,12 @@ export const AddObjectPanel: React.FC<AddObjectPanelProps> = ({
   };
 
   const handleAdd = (type: ObjectType) => {
+    if (type === ObjectType.TRUSS_STRUCTURE) {
+      setIsOpen(false);
+      onOpenTrussBuilder();
+      setIsDrawMode(false);
+      return;
+    }
     addObject(type);
     setIsDrawMode(false);
   };
@@ -155,8 +163,9 @@ export const AddObjectPanel: React.FC<AddObjectPanelProps> = ({
                         {cat.items.map(item => (
                           <button
                             key={item.type}
-                            draggable
+                            draggable={item.type !== ObjectType.TRUSS_STRUCTURE}
                             onDragStart={(e) => {
+                              if (item.type === ObjectType.TRUSS_STRUCTURE) return;
                               setDraggedType(item.type);
                               e.dataTransfer.setData('application/banquet-type', item.type);
                               e.dataTransfer.effectAllowed = 'copy';

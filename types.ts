@@ -32,6 +32,7 @@ export enum ObjectType {
 
   // Rigging & Equipment
   TRUSS_STRAIGHT = 'TRUSS_STRAIGHT', // Box Truss Section
+  TRUSS_STRUCTURE = 'TRUSS_STRUCTURE', // Built truss structure
   EQUIPMENT_MIXER = 'EQUIPMENT_MIXER', // FOH Mixer Console
   EFFECTS_FOG = 'EFFECTS_FOG',     // Fog / Haze Machine
 
@@ -57,6 +58,23 @@ export interface StairConfig {
 
 export type TableCloth = 'linen' | 'satin' | 'velvet';
 
+export type TrussSegmentLength = 200 | 150 | 100 | 50 | 20 | 10; // cm
+export type TrussStructureKind = 'TOWER' | 'GOALPOST' | 'BACKDROP';
+
+export interface TrussMember {
+  segments: TrussSegmentLength[];
+}
+
+export interface TrussStructureConfig {
+  kind: TrussStructureKind;
+  legs: TrussMember;
+  beam?: TrussMember;
+  depthMember?: TrussMember;
+  quantity: number;
+  title: string;
+  groupId?: string;
+}
+
 export interface BanquetObject {
   id: string;
   type: ObjectType;
@@ -75,6 +93,8 @@ export interface BanquetObject {
   arrayCount?: number; // Line array box count (2-8)
   stairs?: StairConfig[]; // Array of stairs attached to the stage
   tableCloth?: TableCloth; // Table cloth material type
+  trussStructure?: TrussStructureConfig;
+  trussSchematicColors?: boolean;
 }
 
 export interface HallConfig {

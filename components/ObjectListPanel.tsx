@@ -24,6 +24,7 @@ const TYPE_INFO: Record<string, { label: string; icon: React.ReactNode }> = {
   [ObjectType.LIGHT_FOLLOWSPOT]: { label: '追蹤燈', icon: <Scan className="w-3 h-3" /> },
   [ObjectType.LIGHT_WASH]: { label: '染色燈', icon: <RectangleHorizontal className="w-3 h-3" /> },
   [ObjectType.LIGHT_STROBE]: { label: '頻閃燈', icon: <SunDim className="w-3 h-3" /> },
+  [ObjectType.TRUSS_STRUCTURE]: { label: 'Truss 結構', icon: <GripHorizontal className="w-3 h-3" /> },
   [ObjectType.TRUSS_STRAIGHT]: { label: '桁架', icon: <GripHorizontal className="w-3 h-3" /> },
   [ObjectType.EQUIPMENT_MIXER]: { label: '混音台', icon: <Sliders className="w-3 h-3" /> },
   [ObjectType.EFFECTS_FOG]: { label: '煙霧機', icon: <Wind className="w-3 h-3" /> },

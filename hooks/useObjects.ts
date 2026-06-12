@@ -3,6 +3,7 @@ import { BanquetObject, ObjectType, HallConfig, StairConfig } from '../types';
 import { INITIAL_OBJECTS, createObjectConfig } from '../constants';
 import { generateLayout } from '../services/geminiService';
 import { useHistory } from './useHistory';
+import { cloneTrussConfig } from '../trussConfig';
 
 export function useObjects() {
   const { state: objects, set: setObjects, undo, redo, canUndo, canRedo } = useHistory<BanquetObject[]>(INITIAL_OBJECTS);
@@ -48,6 +49,11 @@ export function useObjects() {
         position: { ...obj.position, x: obj.position.x + 1, z: obj.position.z + 1 },
         label: obj.label ? `${obj.label} (copy)` : '',
         stairs: obj.stairs?.map(s => ({ ...s, id: crypto.randomUUID() })),
+        trussStructure: obj.trussStructure ? {
+          ...cloneTrussConfig(obj.trussStructure),
+          groupId: crypto.randomUUID(),
+          quantity: 1,
+        } : undefined,
       }));
       duplicated.push(...newObjs);
       return [...prev, ...newObjs];

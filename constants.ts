@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BanquetObject, ObjectType, HallConfig, TableCloth } from './types';
+import { createDefaultTrussConfig } from './trussConfig';
 
 export const INITIAL_HALL: HallConfig = {
   width: 15,
@@ -138,6 +139,7 @@ export const createObjectConfig = (
   else if (type === ObjectType.RECEPTION_DESK) defaultColor = '#f5f0e8';
   else if (isSpeaker) defaultColor = '#888890';
   else if (type === ObjectType.TRUSS_STRAIGHT) defaultColor = '#a0a0a8';
+  else if (type === ObjectType.TRUSS_STRUCTURE) defaultColor = '#a0a0a8';
   else if (type === ObjectType.EQUIPMENT_MIXER) defaultColor = '#3a3a42';
   else if (type === ObjectType.EFFECTS_FOG) defaultColor = '#606068';
   else if (isTable) defaultColor = '#f5f0e8';
@@ -181,6 +183,8 @@ export const createObjectConfig = (
     intensity: isLight ? 1.5 : undefined,
     standType: 'TRIPOD',
     arrayCount: type === ObjectType.SPEAKER_LINE_ARRAY ? 4 : undefined,
-    stairs: type === ObjectType.STAGE ? [{ id: crypto.randomUUID(), side: 'front', offset: 0, width: 2 }] : undefined
+    stairs: type === ObjectType.STAGE ? [{ id: crypto.randomUUID(), side: 'front', offset: 0, width: 2 }] : undefined,
+    trussStructure: type === ObjectType.TRUSS_STRUCTURE ? createDefaultTrussConfig() : undefined,
+    trussSchematicColors: type === ObjectType.TRUSS_STRUCTURE ? false : undefined,
   };
 };

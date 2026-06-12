@@ -1,7 +1,8 @@
 import React, { useState, useRef, useCallback } from 'react';
 import * as THREE from 'three';
-import { ObjectType } from './types';
-import { INITIAL_HALL } from './constants';
+import { BanquetObject, ObjectType, TrussStructureConfig } from './types';
+import { createObjectConfig, INITIAL_HALL } from './constants';
+import { cloneTrussConfig, getTrussDimensions } from './trussConfig';
 import { useObjects } from './hooks/useObjects';
 import { useDrawing } from './hooks/useDrawing';
 import { useSceneIO } from './hooks/useSceneIO';
@@ -14,9 +15,13 @@ import StatusBar from './components/StatusBar';
 import { SceneCanvas } from './components/SceneCanvas';
 import { SceneManager } from './components/SceneManager';
 import { AddObjectPanel } from './components/AddObjectPanel';
+import { TrussBuilderModal } from './components/TrussBuilderModal';
+import { TrussSheetModal } from './components/TrussSheetModal';
+import { TrussStudio } from './components/TrussStudio';
 
 export default function App() {
   const [sceneId, setSceneId] = useState<string | null>(null);
+  const [view, setView] = useState<'home' | 'trussStudio'>('home');
   const [mode, setMode] = useState<'EDIT' | 'VIEW'>('EDIT');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [hall, setHall] = useState(INITIAL_HALL);
@@ -27,6 +32,9 @@ export default function App() {
   const [draggedType, setDraggedType] = useState<ObjectType | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [addPanelOpen, setAddPanelOpen] = useState(true);
+  const [showTrussBuilder, setShowTrussBuilder] = useState(false);
+  const [editingTrussId, setEditingTrussId] = useState<string | null>(null);
+  const [showTrussSheet, setShowTrussSheet] = useState(false);
 
   const objectRefs = useRef<Record<string, THREE.Group | null>>({});
 
@@ -53,16 +61,19 @@ export default function App() {
   });
 
   const handleLoadScene = useCallback(async (id: string) => {
+    setView('home');
     setSceneId(id);
     await sceneIO.loadScene(id);
   }, [sceneIO.loadScene]);
 
   const handleNewScene = useCallback(async (id: string) => {
+    setView('home');
     setSceneId(id);
     await sceneIO.loadScene(id);
   }, [sceneIO.loadScene]);
 
   const handleBackToList = useCallback(() => {
+    setView('home');
     setSceneId(null);
   }, []);
 
@@ -76,6 +87,58 @@ export default function App() {
   const handleBatchAddFromModal = (newObjects: import('./types').BanquetObject[]) => {
     const newIds = handleBatchAddObjects(newObjects);
     setSelectedIds(newIds);
+  };
+
+  const handleOpenTrussBuilder = () => {
+    setEditingTrussId(null);
+    setShowTrussBuilder(true);
+    drawing.setIsDrawMode(false);
+  };
+
+  const handleEditTrussStructure = (object: BanquetObject) => {
+    setEditingTrussId(object.id);
+    setShowTrussBuilder(true);
+    drawing.setIsDrawMode(false);
+  };
+
+  const handleCloseTrussBuilder = () => {
+    setShowTrussBuilder(false);
+    setEditingTrussId(null);
+  };
+
+  const handleSubmitTrussStructure = (config: TrussStructureConfig) => {
+    if (editingTrussId) {
+      const editedConfig = cloneTrussConfig(config);
+      delete editedConfig.groupId;
+      editedConfig.quantity = 1;
+      updateObject(editingTrussId, {
+        trussStructure: editedConfig,
+        label: config.title,
+      });
+      return;
+    }
+
+    const quantity = Math.max(1, Math.round(config.quantity || 1));
+    const groupId = crypto.randomUUID();
+    const dims = getTrussDimensions(config);
+    const spacing = Math.max(1, dims.widthCm / 100) + 1;
+    const startX = -((quantity - 1) * spacing) / 2;
+    const newObjects: BanquetObject[] = Array.from({ length: quantity }, (_, index) => {
+      const obj = createObjectConfig(ObjectType.TRUSS_STRUCTURE, {
+        x: startX + index * spacing,
+        y: 0,
+        z: 0,
+      });
+      obj.label = quantity > 1 ? `${config.title} ${index + 1}` : config.title;
+      obj.trussStructure = {
+        ...cloneTrussConfig(config),
+        groupId,
+        quantity,
+      };
+      obj.trussSchematicColors = false;
+      return obj;
+    });
+    handleBatchAddFromModal(newObjects);
   };
 
   const deleteSelected = () => {
@@ -94,8 +157,18 @@ export default function App() {
   };
 
   // --- Scene Manager (no scene loaded) ---
+  if (!sceneId && view === 'trussStudio') {
+    return <TrussStudio onBack={() => setView('home')} />;
+  }
+
   if (!sceneId) {
-    return <SceneManager onLoad={handleLoadScene} onNew={handleNewScene} />;
+    return (
+      <SceneManager
+        onLoad={handleLoadScene}
+        onNew={handleNewScene}
+        onOpenTrussStudio={() => setView('trussStudio')}
+      />
+    );
   }
 
   // --- Main Editor ---
@@ -112,6 +185,18 @@ export default function App() {
 
       {showBatchModal && (
         <AdvancedAddModal onClose={() => setShowBatchModal(false)} onAddObjects={handleBatchAddFromModal} hall={hall} />
+      )}
+
+      {showTrussBuilder && (
+        <TrussBuilderModal
+          initialConfig={editingTrussId ? objects.find(obj => obj.id === editingTrussId)?.trussStructure : undefined}
+          onClose={handleCloseTrussBuilder}
+          onSubmit={handleSubmitTrussStructure}
+        />
+      )}
+
+      {showTrussSheet && (
+        <TrussSheetModal objects={objects} onClose={() => setShowTrussSheet(false)} />
       )}
 
       {/* Top Toolbar */}
@@ -141,6 +226,8 @@ export default function App() {
         addPanelOpen={addPanelOpen}
         setAddPanelOpen={setAddPanelOpen}
         onBackToList={handleBackToList}
+        hasTrussStructures={objects.some(obj => obj.type === ObjectType.TRUSS_STRUCTURE)}
+        onOpenTrussSheets={() => setShowTrussSheet(true)}
       />
 
       {/* Main Area */}
@@ -153,11 +240,12 @@ export default function App() {
             addObject={(type) => handleAddObjectFromSidebar(type)}
             setDraggedType={setDraggedType}
             setIsDrawMode={drawing.setIsDrawMode}
+            onOpenTrussBuilder={handleOpenTrussBuilder}
           />
         )}
 
         {/* 3D Scene */}
-        <div className="flex-1 relative">
+        <div className="flex-1 relative min-w-0 overflow-hidden">
           <SceneCanvas
             mode={mode}
             hall={hall}
@@ -204,6 +292,7 @@ export default function App() {
             handleAddStair={handleAddStair}
             handleRemoveStair={handleRemoveStair}
             handleUpdateStair={handleUpdateStair}
+            onEditTrussStructure={handleEditTrussStructure}
           />
         </Sidebar>
       </div>

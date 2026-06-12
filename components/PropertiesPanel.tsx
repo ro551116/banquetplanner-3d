@@ -1,10 +1,11 @@
 import React from 'react';
 import {
   MousePointer2, Trash2, Type, Move3d, PaintBucket,
-  Footprints, X
+  Footprints, X, GripHorizontal
 } from 'lucide-react';
 import { BanquetObject, ObjectType, StairSide, TableCloth } from '../types';
 import { TABLE_PRESETS, TABLE_CLOTH_MATERIALS } from '../constants';
+import { formatTrussTitle, getTrussDimensions } from '../trussConfig';
 
 interface PropertiesPanelProps {
   selectedIds: Set<string>;
@@ -15,11 +16,13 @@ interface PropertiesPanelProps {
   handleAddStair: (stageId: string) => void;
   handleRemoveStair: (stageId: string, stairId: string) => void;
   handleUpdateStair: (stageId: string, stairId: string, updates: Partial<import('../types').StairConfig>) => void;
+  onEditTrussStructure: (object: BanquetObject) => void;
 }
 
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   selectedIds, objects, updateObject, deleteSelected,
-  handleBulkPropertyUpdate, handleAddStair, handleRemoveStair, handleUpdateStair
+  handleBulkPropertyUpdate, handleAddStair, handleRemoveStair, handleUpdateStair,
+  onEditTrussStructure
 }) => {
   const selectedCount = selectedIds.size;
   const singleSelectedId = selectedCount === 1 ? Array.from(selectedIds)[0] : null;
@@ -89,6 +92,44 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   <input type="color" value={selectedObj.color} onChange={(e) => updateObject(selectedObj.id, { color: e.target.value })} className="w-8 h-8 rounded cursor-pointer border-0 p-0" />
                 </div>
               </div>
+
+              {/* Truss Structure Controls */}
+              {selectedObj.type === ObjectType.TRUSS_STRUCTURE && selectedObj.trussStructure && (() => {
+                const dims = getTrussDimensions(selectedObj.trussStructure);
+                return (
+                  <div className="space-y-3 border-t border-slate-200 pt-3">
+                    <label className="text-[10px] font-semibold text-slate-500 uppercase flex items-center gap-1">
+                      <GripHorizontal className="w-3 h-3" /> Truss 結構
+                    </label>
+                    <div className="rounded-lg bg-white border border-slate-200 p-3 space-y-2">
+                      <div className="text-xs font-bold text-slate-700 leading-snug">
+                        {formatTrussTitle(selectedObj.trussStructure)}
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        實際外徑 {selectedObj.trussStructure.kind === 'TOWER'
+                          ? `H${dims.heightCm}`
+                          : `W${dims.widthCm} × H${dims.heightCm}${selectedObj.trussStructure.kind === 'BACKDROP' ? ` × D${dims.depthCm || 0}` : ''}`} cm
+                      </div>
+                      <button
+                        onClick={() => onEditTrussStructure(selectedObj)}
+                        className="w-full h-8 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-colors"
+                      >
+                        編輯結構
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2">
+                      <span className="text-[11px] font-semibold text-slate-600">3D 段長色彩模式</span>
+                      <button
+                        onClick={() => updateObject(selectedObj.id, { trussSchematicColors: !selectedObj.trussSchematicColors })}
+                        className={`w-10 h-5 rounded-full p-0.5 transition-colors ${selectedObj.trussSchematicColors ? 'bg-blue-600' : 'bg-slate-300'}`}
+                        title={selectedObj.trussSchematicColors ? '切換寫實模式' : '切換段長色彩模式'}
+                      >
+                        <span className={`block w-4 h-4 rounded-full bg-white shadow transition-transform ${selectedObj.trussSchematicColors ? 'translate-x-5' : ''}`} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Table Cloth Presets */}
               {(selectedObj.type === ObjectType.ROUND_TABLE || selectedObj.type === ObjectType.RECT_TABLE) && (

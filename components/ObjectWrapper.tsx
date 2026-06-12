@@ -48,6 +48,7 @@ export const ObjectWrapper = React.memo(React.forwardRef<THREE.Group, ObjectWrap
           type={obj.type}
           color={obj.color}
           selected={isSelected && isEditMode}
+          isEditMode={isEditMode}
           label={obj.label}
           customSize={obj.customSize}
           customWidth={obj.customWidth}
@@ -60,6 +61,8 @@ export const ObjectWrapper = React.memo(React.forwardRef<THREE.Group, ObjectWrap
           stairs={obj.stairs}
           tableCloth={obj.tableCloth}
           arrayCount={obj.arrayCount}
+          trussStructure={obj.trussStructure}
+          trussSchematicColors={obj.trussSchematicColors}
         />
       </group>
     );

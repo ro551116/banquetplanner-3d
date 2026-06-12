@@ -3,14 +3,17 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import type { TrussStructureConfig } from '../types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001');
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../data');
 const SCENES_DIR = path.join(DATA_DIR, 'scenes');
+const TRUSS_STUDIO_FILE = path.join(DATA_DIR, 'truss-studio.json');
 
 // Ensure data directory exists
+fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(SCENES_DIR, { recursive: true });
 
 interface SceneFile {
@@ -20,6 +23,25 @@ interface SceneFile {
   thumbnail?: string;
   created_at: string;
   updated_at: string;
+}
+
+interface TrussStudioEntry {
+  id: string;
+  config: TrussStructureConfig;
+  created_at: string;
+  updated_at: string;
+}
+
+interface TrussStudioEvent {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  structures: TrussStudioEntry[];
+}
+
+interface TrussStudioFile {
+  events: TrussStudioEvent[];
 }
 
 function readScene(id: string): SceneFile | null {
@@ -32,10 +54,74 @@ function writeScene(scene: SceneFile) {
   fs.writeFileSync(path.join(SCENES_DIR, `${scene.id}.json`), JSON.stringify(scene));
 }
 
+function readTrussStudio(): TrussStudioFile {
+  if (!fs.existsSync(TRUSS_STUDIO_FILE)) return { events: [] };
+
+  const data = JSON.parse(fs.readFileSync(TRUSS_STUDIO_FILE, 'utf-8'));
+  if (Array.isArray(data.events)) return { events: data.events };
+
+  if (Array.isArray(data.structures) && data.structures.length > 0) {
+    const now = new Date().toISOString();
+    const structureTimes = data.structures
+      .map((entry: TrussStudioEntry) => ({
+        createdAt: new Date(entry.created_at).getTime(),
+        updatedAt: new Date(entry.updated_at).getTime(),
+      }))
+      .filter((time: { createdAt: number; updatedAt: number }) => (
+        Number.isFinite(time.createdAt) && Number.isFinite(time.updatedAt)
+      ));
+    const createdAt = structureTimes.length > 0
+      ? new Date(Math.min(...structureTimes.map((time: { createdAt: number }) => time.createdAt))).toISOString()
+      : now;
+    const updatedAt = structureTimes.length > 0
+      ? new Date(Math.max(...structureTimes.map((time: { updatedAt: number }) => time.updatedAt))).toISOString()
+      : now;
+
+    return {
+      events: [{
+        id: crypto.randomUUID(),
+        name: '未分類',
+        created_at: createdAt,
+        updated_at: updatedAt,
+        structures: data.structures,
+      }],
+    };
+  }
+
+  return { events: [] };
+}
+
+function writeTrussStudio(data: TrussStudioFile) {
+  fs.writeFileSync(TRUSS_STUDIO_FILE, JSON.stringify(data));
+}
+
 // --- Middleware ---
 app.use(express.json({ limit: '10mb' }));
 
 // --- API Routes ---
+
+// Truss studio single resource
+app.get('/api/truss-studio', (_req, res) => {
+  try {
+    res.json(readTrussStudio());
+  } catch (err) {
+    console.error('Get truss studio error:', err);
+    res.status(500).json({ error: 'Failed to load truss studio' });
+  }
+});
+
+app.put('/api/truss-studio', (req, res) => {
+  try {
+    const data: TrussStudioFile = {
+      events: Array.isArray(req.body.events) ? req.body.events : [],
+    };
+    writeTrussStudio(data);
+    res.json(data);
+  } catch (err) {
+    console.error('Save truss studio error:', err);
+    res.status(500).json({ error: 'Failed to save truss studio' });
+  }
+});
 
 // List all scenes
 app.get('/api/scenes', (_req, res) => {

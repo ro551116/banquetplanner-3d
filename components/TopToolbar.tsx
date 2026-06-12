@@ -5,7 +5,7 @@ import {
   Upload, Download, PlusSquare,
   SunMedium, Moon, Image as ImageIcon,
   LayoutGrid, ArrowDownToLine, Tv, PanelLeft,
-  Plus, Settings, ChevronLeft,
+  Plus, Settings, ChevronLeft, FileText,
 } from 'lucide-react';
 import { PRESET_VIEWS } from '../constants';
 
@@ -36,6 +36,8 @@ interface TopToolbarProps {
   addPanelOpen: boolean;
   setAddPanelOpen: (v: boolean) => void;
   onBackToList?: () => void;
+  hasTrussStructures: boolean;
+  onOpenTrussSheets: () => void;
 }
 
 const PRESET_VIEW_ICONS = [
@@ -77,6 +79,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   undo, redo, canUndo, canRedo,
   viewIndex, setViewIndex, viewEnvironment, setViewEnvironment, takeScreenshot,
   panelOpen, setPanelOpen, addPanelOpen, setAddPanelOpen, onBackToList,
+  hasTrussStructures, onOpenTrussSheets,
 }) => {
   return (
     <div className="h-12 bg-[#f5f5f5] border-b border-slate-300 flex items-center px-2 gap-1 flex-shrink-0 select-none" style={{ minHeight: 48, maxHeight: 48 }}>
@@ -186,6 +189,9 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           <IconBtn onClick={exportScene} title="匯出場景">
             <Download className="w-3.5 h-3.5" />
           </IconBtn>
+          <IconBtn onClick={onOpenTrussSheets} title="結構圖" disabled={!hasTrussStructures}>
+            <FileText className="w-3.5 h-3.5" />
+          </IconBtn>
         </div>
         {mode === 'EDIT' && (
           <>
@@ -194,15 +200,19 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             </IconBtn>
           </>
         )}
-        <Divider />
-        {/* Panel toggle */}
-        <IconBtn
-          onClick={() => setPanelOpen(!panelOpen)}
-          title={panelOpen ? '收合面板' : '展開面板'}
-          active={panelOpen}
-        >
-          <Settings className="w-3.5 h-3.5" />
-        </IconBtn>
+        {mode === 'EDIT' && (
+          <>
+            <Divider />
+            {/* Panel toggle */}
+            <IconBtn
+              onClick={() => setPanelOpen(!panelOpen)}
+              title={panelOpen ? '收合面板' : '展開面板'}
+              active={panelOpen}
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </IconBtn>
+          </>
+        )}
       </div>
     </div>
   );

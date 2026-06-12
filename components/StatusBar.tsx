@@ -7,6 +7,7 @@ import {
   Speaker,
   Lightbulb,
   Theater,
+  GripHorizontal,
 } from 'lucide-react';
 import { BanquetObject, ObjectType } from '../types';
 
@@ -32,6 +33,7 @@ const LIGHT_TYPES = new Set<ObjectType>([
   ObjectType.LIGHT_STAND,
   ObjectType.LIGHT,
 ]);
+const RIGGING_TYPES = new Set<ObjectType>([ObjectType.TRUSS_STRAIGHT, ObjectType.TRUSS_STRUCTURE]);
 
 function getObjectDisplayName(obj: BanquetObject): string {
   if (obj.label) return obj.label;
@@ -49,6 +51,8 @@ function getObjectDisplayName(obj: BanquetObject): string {
     LIGHT_STAND: 'Light Stand',
     SPEAKER: 'Speaker',
     LIGHT: 'Light',
+    TRUSS_STRAIGHT: 'Truss',
+    TRUSS_STRUCTURE: 'Truss Structure',
     DECOR: 'Decor',
   };
   return names[obj.type] || obj.type;
@@ -56,14 +60,15 @@ function getObjectDisplayName(obj: BanquetObject): string {
 
 export default function StatusBar({ mode, isDrawMode, selectedIds, objects }: StatusBarProps) {
   const counts = useMemo(() => {
-    let tables = 0, stages = 0, audio = 0, lights = 0;
+    let tables = 0, stages = 0, audio = 0, lights = 0, rigging = 0;
     for (const obj of objects) {
       if (TABLE_TYPES.has(obj.type)) tables++;
       else if (STAGE_TYPES.has(obj.type)) stages++;
       else if (AUDIO_TYPES.has(obj.type)) audio++;
       else if (LIGHT_TYPES.has(obj.type)) lights++;
+      else if (RIGGING_TYPES.has(obj.type)) rigging++;
     }
-    return { tables, stages, audio, lights };
+    return { tables, stages, audio, lights, rigging };
   }, [objects]);
 
   const selectedObjects = useMemo(() => {
@@ -144,6 +149,12 @@ export default function StatusBar({ mode, isDrawMode, selectedIds, objects }: St
           <span className="flex items-center gap-1">
             <Lightbulb size={12} />
             {counts.lights}
+          </span>
+        )}
+        {counts.rigging > 0 && (
+          <span className="flex items-center gap-1">
+            <GripHorizontal size={12} />
+            {counts.rigging}
           </span>
         )}
         <span className="text-gray-400 border-l border-gray-300 pl-3">
