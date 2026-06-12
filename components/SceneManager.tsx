@@ -73,7 +73,7 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew, onBac
   };
 
   return (
-    <div className="min-h-screen bg-[#f5f5f7] text-slate-800 overflow-auto">
+    <div className="h-screen bg-[#f5f5f7] text-slate-800 overflow-y-auto">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,300&display=swap');
         .scene-mgr * { font-family: 'DM Sans', sans-serif; }
