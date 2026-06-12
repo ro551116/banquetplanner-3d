@@ -2,6 +2,10 @@ import React, { useMemo } from 'react';
 import * as THREE from 'three';
 import { TrussMember, TrussSegmentLength, TrussStructureConfig } from '../../types';
 import {
+  customMemberHasBasePlate,
+  detectCustomJoints,
+  getCustomBounds,
+  getCustomMemberStart,
   getEffectiveBayCount,
   getEffectiveBeamAttachCm,
   getEffectiveRightLeg,
@@ -138,8 +142,8 @@ const CouplerCube = ({ position }: { position: THREE.Vector3 }) => (
   </mesh>
 );
 
-const BasePlate = ({ x, z }: { x: number; z: number }) => (
-  <mesh position={[x, 0.025, z]} receiveShadow castShadow>
+const BasePlate = ({ x, z, y = 0.025 }: { x: number; z: number; y?: number }) => (
+  <mesh position={[x, y, z]} receiveShadow castShadow>
     <boxGeometry args={[0.72, 0.05, 0.52]} />
     <meshStandardMaterial color="#050505" metalness={0.45} roughness={0.45} />
   </mesh>
@@ -193,21 +197,43 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
   const dims = getTrussDimensions(config);
   const height = toMeters(dims.heightCm);
   const width = config.kind === 'TOWER' ? 0 : toMeters(dims.widthCm);
-  const depth = config.kind === 'BACKDROP' ? toMeters(getMemberLength(config.depthMember)) : 0;
+  const depth = config.kind === 'CUSTOM'
+    ? toMeters(dims.depthCm || 0)
+    : config.kind === 'BACKDROP'
+      ? toMeters(getMemberLength(config.depthMember))
+      : 0;
   const renderColor = color || '#b8b8c0';
   const leftX = -width / 2;
   const rightX = width / 2;
+  const legs = config.legs || { segments: [] };
   const rightLeg = getEffectiveRightLeg(config);
   const topY = height + 0.04;
   const attachY = toMeters(getEffectiveBeamAttachCm(config)) + 0.04;
   const leftBeamLength = toMeters(getMemberLength(config.beam));
   const bayCount = getEffectiveBayCount(config);
   const tColumnX = config.kind === 'TSHAPE' ? leftX + leftBeamLength : 0;
+  const customMembers = config.kind === 'CUSTOM' ? config.members || [] : [];
+  const customBounds = getCustomBounds(customMembers);
+  const customCenterX = (customBounds.minXCm + customBounds.maxXCm) / 2;
+  const customCenterZ = (customBounds.minZCm + customBounds.maxZCm) / 2;
+  const customHeight = toMeters(customBounds.heightCm);
+  const customWidth = toMeters(customBounds.widthCm);
+  const customDepth = toMeters(customBounds.depthCm);
+  const customToVector = (xCm: number, yCm: number, zCm = 0) => new THREE.Vector3(
+    toMeters(xCm - customCenterX),
+    toMeters(yCm - customBounds.minYCm) + 0.04,
+    -toMeters(zCm - customCenterZ),
+  );
+  const customMemberAxis = (member: (typeof customMembers)[number]) => {
+    if (member.orientation === 'VERTICAL') return new THREE.Vector3(0, 1, 0);
+    if (member.orientation === 'DEPTH') return new THREE.Vector3(0, 0, -1);
+    return new THREE.Vector3(member.direction === -1 ? -1 : 1, 0, 0);
+  };
 
   const renderTwoLegFrame = () => (
     <>
       <MemberRenderer
-        member={config.legs}
+        member={legs}
         start={new THREE.Vector3(leftX, 0.04, 0)}
         axis={new THREE.Vector3(0, 1, 0)}
         schematicColors={schematicColors}
@@ -239,12 +265,43 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
     </>
   );
 
+  const renderCustomStructure = () => {
+    const interMemberJoints = detectCustomJoints(customMembers).filter(joint => joint.type === 'INTER_MEMBER');
+
+    return (
+      <>
+        {customMembers.map((member, index) => {
+          const start = getCustomMemberStart(member);
+          const position = customToVector(start.xCm, start.yCm, start.zCm);
+          const plateY = toMeters(start.yCm - customBounds.minYCm) + 0.025;
+
+          return (
+            <React.Fragment key={`custom-member-${member.id || index}`}>
+              <MemberRenderer
+                member={member}
+                start={position}
+                axis={customMemberAxis(member)}
+                schematicColors={schematicColors}
+                color={renderColor}
+                keyPrefix={`custom-${member.id || index}`}
+              />
+              {customMemberHasBasePlate(member) && <BasePlate x={position.x} y={plateY} z={position.z} />}
+            </React.Fragment>
+          );
+        })}
+        {interMemberJoints.map(joint => (
+          <CouplerCube key={joint.id} position={customToVector(joint.xCm, joint.yCm, joint.zCm)} />
+        ))}
+      </>
+    );
+  };
+
   return (
     <group>
       {config.kind === 'TOWER' ? (
         <>
           <MemberRenderer
-            member={config.legs}
+            member={legs}
             start={new THREE.Vector3(0, 0.04, 0)}
             axis={new THREE.Vector3(0, 1, 0)}
             schematicColors={schematicColors}
@@ -278,7 +335,7 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
       {config.kind === 'LSHAPE' && (
         <>
           <MemberRenderer
-            member={config.legs}
+            member={legs}
             start={new THREE.Vector3(leftX, 0.04, 0)}
             axis={new THREE.Vector3(0, 1, 0)}
             schematicColors={schematicColors}
@@ -303,7 +360,7 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
       {config.kind === 'TSHAPE' && (
         <>
           <MemberRenderer
-            member={config.legs}
+            member={legs}
             start={new THREE.Vector3(tColumnX, 0.04, 0)}
             axis={new THREE.Vector3(0, 1, 0)}
             schematicColors={schematicColors}
@@ -353,7 +410,7 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
             return (
               <React.Fragment key={`multi-column-${index}`}>
                 <MemberRenderer
-                  member={config.legs}
+                  member={legs}
                   start={new THREE.Vector3(x, 0.04, 0)}
                   axis={new THREE.Vector3(0, 1, 0)}
                   schematicColors={schematicColors}
@@ -391,9 +448,15 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
         </>
       )}
 
+      {config.kind === 'CUSTOM' && renderCustomStructure()}
+
       {selected && isEditMode && (
-        <mesh position={[0, Math.max(height, 0.4) / 2, -depth / 2]}>
-          <boxGeometry args={[Math.max(width, CROSS_SECTION) + 0.5, Math.max(height, 0.4) + 0.5, Math.max(depth, CROSS_SECTION) + 0.5]} />
+        <mesh position={[0, Math.max(height, 0.4) / 2, config.kind === 'CUSTOM' ? 0 : -depth / 2]}>
+          <boxGeometry args={[
+            Math.max(config.kind === 'CUSTOM' ? customWidth : width, CROSS_SECTION) + 0.5,
+            Math.max(config.kind === 'CUSTOM' ? customHeight : height, 0.4) + 0.5,
+            Math.max(config.kind === 'CUSTOM' ? customDepth : depth, CROSS_SECTION) + 0.5,
+          ]} />
           <meshBasicMaterial transparent opacity={0} depthWrite={false} />
           <Highlight />
         </mesh>

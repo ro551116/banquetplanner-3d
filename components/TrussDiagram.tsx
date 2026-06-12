@@ -1,7 +1,11 @@
 import React from 'react';
 import { TrussMember, TrussSegmentLength, TrussStructureConfig } from '../types';
 import {
+  customMemberHasBasePlate,
+  detectCustomJoints,
   formatTrussTitle,
+  getCustomBounds,
+  getCustomMemberStart,
   getEffectiveBayCount,
   getEffectiveBeamAttachCm,
   getEffectiveRightLeg,
@@ -141,7 +145,11 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
   className = '',
 }) => {
   const dims = getTrussDimensions(config);
-  const hasSideView = config.kind === 'BACKDROP' && config.depthMember;
+  const customMembers = config.kind === 'CUSTOM' ? config.members || [] : [];
+  const customBounds = getCustomBounds(customMembers);
+  const customJoints = detectCustomJoints(customMembers);
+  const hasCustomDepth = customMembers.some(member => member.orientation === 'DEPTH');
+  const hasSideView = Boolean((config.kind === 'BACKDROP' && config.depthMember) || (config.kind === 'CUSTOM' && hasCustomDepth));
   const contentLeft = 260;
   const contentTop = 92;
   const contentBottom = 636;
@@ -166,6 +174,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
   const sideDepthPx = (dims.depthCm || 0) * sideScale;
   const sideBaseY = contentBottom - 18;
   const sideTopY = sideBaseY - dims.heightCm * sideScale;
+  const legs = config.legs || { segments: [] };
   const rightLeg = getEffectiveRightLeg(config);
   const leftBeamCm = getMemberLength(config.beam);
   const attachY = baseY - getEffectiveBeamAttachCm(config) * frontScale;
@@ -173,6 +182,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
   const tColumnX = config.kind === 'TSHAPE'
     ? leftX + leftBeamCm * frontScale
     : frontCenterX;
+  const customLeftX = frontCenterX - (customBounds.widthCm * frontScale) / 2;
 
   const displayedConfig = {
     ...config,
@@ -181,13 +191,98 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
 
   const renderTwoLegTopBeam = () => (
     <g>
-      {drawMemberSegments(config.legs, leftX, baseY, 'y', frontScale, 'left-leg')}
+      {drawMemberSegments(legs, leftX, baseY, 'y', frontScale, 'left-leg')}
       {drawMemberSegments(rightLeg, rightX, baseY, 'y', frontScale, 'right-leg')}
       {config.beam && drawMemberSegments(config.beam, leftX, topY, 'x', frontScale, 'beam')}
       <Joint x={leftX} y={topY} />
       <Joint x={rightX} y={topY} />
       <BasePlate x={leftX} y={baseY + 14} />
       <BasePlate x={rightX} y={baseY + 14} />
+    </g>
+  );
+
+  const mapCustomFrontX = (xCm: number) => customLeftX + (xCm - customBounds.minXCm) * frontScale;
+  const mapCustomFrontY = (yCm: number) => baseY - (yCm - customBounds.minYCm) * frontScale;
+  const mapCustomSideZ = (zCm: number) => sideX + (zCm - customBounds.minZCm) * sideScale;
+  const mapCustomSideY = (yCm: number) => sideBaseY - (yCm - customBounds.minYCm) * sideScale;
+  const customDepthIds = new Set(customMembers.filter(member => member.orientation === 'DEPTH').map(member => member.id));
+  const customDepthJoints = customJoints.filter(joint => (
+    joint.type === 'INTER_MEMBER' && joint.memberIds.some(memberId => customDepthIds.has(memberId))
+  ));
+  const customSideVerticalIds = new Set(
+    customDepthJoints.flatMap(joint => joint.memberIds)
+      .filter(memberId => customMembers.some(member => member.id === memberId && member.orientation === 'VERTICAL')),
+  );
+
+  const renderCustomStructure = () => (
+    <g>
+      {customMembers.map((member, index) => {
+        const start = getCustomMemberStart(member);
+        const key = `custom-${member.id || index}`;
+
+        if (member.orientation === 'VERTICAL') {
+          return (
+            <g key={key}>
+              {drawMemberSegments(member, mapCustomFrontX(start.xCm), mapCustomFrontY(start.yCm), 'y', frontScale, key)}
+              {customMemberHasBasePlate(member) && <BasePlate x={mapCustomFrontX(start.xCm)} y={mapCustomFrontY(start.yCm) + 14} />}
+            </g>
+          );
+        }
+
+        if (member.orientation === 'HORIZONTAL') {
+          return drawMemberSegments(
+            member,
+            mapCustomFrontX(start.xCm),
+            mapCustomFrontY(start.yCm),
+            'x',
+            frontScale,
+            key,
+            member.direction === -1 ? -1 : 1,
+          );
+        }
+
+        return null;
+      })}
+      {customJoints
+        .filter(joint => joint.type === 'INTER_MEMBER')
+        .map(joint => (
+          <Joint key={joint.id} x={mapCustomFrontX(joint.xCm)} y={mapCustomFrontY(joint.yCm)} />
+        ))}
+    </g>
+  );
+
+  const renderCustomSideView = () => (
+    <g>
+      <ViewLabel x={sideX + sideDepthPx / 2} y={86}>側視圖</ViewLabel>
+      {customMembers
+        .filter(member => member.orientation === 'VERTICAL' && customSideVerticalIds.has(member.id))
+        .map((member, index) => {
+          const start = getCustomMemberStart(member);
+          const key = `custom-side-vertical-${member.id || index}`;
+
+          return (
+            <g key={key}>
+              {drawMemberSegments(member, mapCustomSideZ(start.zCm), mapCustomSideY(start.yCm), 'y', sideScale, key)}
+              {customMemberHasBasePlate(member) && <BasePlate x={mapCustomSideZ(start.zCm)} y={mapCustomSideY(start.yCm) + 14} />}
+            </g>
+          );
+        })}
+      {customMembers
+        .filter(member => member.orientation === 'DEPTH')
+        .map((member, index) => {
+          const start = getCustomMemberStart(member);
+          return drawMemberSegments(
+            member,
+            mapCustomSideZ(start.zCm),
+            mapCustomSideY(start.yCm),
+            'x',
+            sideScale,
+            `custom-side-depth-${member.id || index}`,
+          );
+        })}
+      {customDepthJoints.map(joint => (
+        <Joint key={`side-${joint.id}`} x={mapCustomSideZ(joint.zCm)} y={mapCustomSideY(joint.yCm)} />
+      ))}
     </g>
   );
 
@@ -213,7 +308,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
       <ViewLabel x={frontCenterX} y={86}>正視圖</ViewLabel>
       {config.kind === 'TOWER' && (
         <g>
-          {drawMemberSegments(config.legs, frontCenterX, baseY, 'y', frontScale, 'tower-leg')}
+          {drawMemberSegments(legs, frontCenterX, baseY, 'y', frontScale, 'tower-leg')}
           <BasePlate x={frontCenterX} y={baseY + 14} />
         </g>
       )}
@@ -231,7 +326,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
 
       {config.kind === 'LSHAPE' && (
         <g>
-          {drawMemberSegments(config.legs, leftX, baseY, 'y', frontScale, 'l-leg')}
+          {drawMemberSegments(legs, leftX, baseY, 'y', frontScale, 'l-leg')}
           {config.beam && drawMemberSegments(config.beam, leftX, attachY, 'x', frontScale, 'l-beam')}
           <Joint x={leftX} y={attachY} />
           <BasePlate x={leftX} y={baseY + 14} />
@@ -240,7 +335,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
 
       {config.kind === 'TSHAPE' && (
         <g>
-          {drawMemberSegments(config.legs, tColumnX, baseY, 'y', frontScale, 't-leg')}
+          {drawMemberSegments(legs, tColumnX, baseY, 'y', frontScale, 't-leg')}
           {config.beam && drawMemberSegments(config.beam, tColumnX, attachY, 'x', frontScale, 't-left-beam', -1)}
           {config.beamRight && drawMemberSegments(config.beamRight, tColumnX, attachY, 'x', frontScale, 't-right-beam')}
           <Joint x={tColumnX - COUPLER * 0.35} y={attachY} />
@@ -253,10 +348,10 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
         <g>
           {config.beam && drawMemberSegments(config.beam, leftX, topY, 'x', frontScale, 'multi-beam')}
           {Array.from({ length: bayCount + 1 }).map((_, index) => {
-            const x = leftX + (frontDrawWidth * index) / bayCount;
-            return (
-              <g key={`multi-column-${index}`}>
-                {drawMemberSegments(config.legs, x, baseY, 'y', frontScale, `multi-leg-${index}`)}
+              const x = leftX + (frontDrawWidth * index) / bayCount;
+              return (
+                <g key={`multi-column-${index}`}>
+                {drawMemberSegments(legs, x, baseY, 'y', frontScale, `multi-leg-${index}`)}
                 <Joint x={x} y={topY} />
                 <BasePlate x={x} y={baseY + 14} />
               </g>
@@ -265,16 +360,20 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
         </g>
       )}
 
-      {hasSideView && config.depthMember && (
+      {config.kind === 'CUSTOM' && renderCustomStructure()}
+
+      {hasSideView && config.kind === 'BACKDROP' && config.depthMember && (
         <g>
           <ViewLabel x={sideX + sideDepthPx / 2} y={86}>側視圖</ViewLabel>
-          {drawMemberSegments(config.legs, sideX, sideBaseY, 'y', sideScale, 'side-leg')}
+          {drawMemberSegments(legs, sideX, sideBaseY, 'y', sideScale, 'side-leg')}
           {drawMemberSegments(config.depthMember, sideX, sideTopY, 'x', sideScale, 'depth')}
           <Joint x={sideX} y={sideTopY} />
           <Joint x={sideX + sideDepthPx} y={sideTopY} />
           <BasePlate x={sideX} y={sideBaseY + 14} />
         </g>
       )}
+
+      {hasSideView && config.kind === 'CUSTOM' && renderCustomSideView()}
 
       <text x={frontCenterX} y={690} textAnchor="middle" fontSize={16} fill="#444">
         W {dims.widthCm}cm × H {dims.heightCm}cm

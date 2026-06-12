@@ -59,6 +59,7 @@ export interface StairConfig {
 export type TableCloth = 'linen' | 'satin' | 'velvet';
 
 export type TrussSegmentLength = 200 | 150 | 100 | 50 | 20 | 10; // cm
+export type TrussMemberOrientation = 'VERTICAL' | 'HORIZONTAL' | 'DEPTH';
 export type TrussStructureKind =
   | 'TOWER'
   | 'GOALPOST'
@@ -66,20 +67,32 @@ export type TrussStructureKind =
   | 'BOX'
   | 'LSHAPE'
   | 'TSHAPE'
-  | 'MULTI_BAY';
+  | 'MULTI_BAY'
+  | 'CUSTOM';
 
 export interface TrussMember {
   segments: TrussSegmentLength[];
 }
 
+export interface TrussCustomMember {
+  id: string;
+  label?: string;
+  orientation: TrussMemberOrientation;
+  segments: TrussSegmentLength[];
+  origin: { xCm: number; yCm: number; zCm?: number };
+  direction?: 1 | -1;
+  basePlate?: boolean;
+}
+
 export interface TrussStructureConfig {
   kind: TrussStructureKind;
-  legs: TrussMember;
+  legs?: TrussMember;
   legsRight?: TrussMember;
   beam?: TrussMember;
   beamRight?: TrussMember;
   bottomBeam?: TrussMember;
   depthMember?: TrussMember;
+  members?: TrussCustomMember[];
   bayCount?: number;
   beamAttachCm?: number;
   quantity: number;

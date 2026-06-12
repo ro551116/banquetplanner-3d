@@ -442,19 +442,31 @@ Response:
 
 ```ts
 type TrussSegmentLength = 200 | 150 | 100 | 50 | 20 | 10; // cm
+type TrussMemberOrientation = 'VERTICAL' | 'HORIZONTAL' | 'DEPTH';
 
 interface TrussMember {
   segments: TrussSegmentLength[];
 }
 
+interface TrussCustomMember {
+  id: string;
+  label?: string;
+  orientation: TrussMemberOrientation;
+  segments: TrussSegmentLength[];
+  origin: { xCm: number; yCm: number; zCm?: number };
+  direction?: 1 | -1;
+  basePlate?: boolean;
+}
+
 interface TrussStructureConfig {
-  kind: 'TOWER' | 'GOALPOST' | 'BACKDROP' | 'BOX' | 'LSHAPE' | 'TSHAPE' | 'MULTI_BAY';
-  legs: TrussMember;
+  kind: 'TOWER' | 'GOALPOST' | 'BACKDROP' | 'BOX' | 'LSHAPE' | 'TSHAPE' | 'MULTI_BAY' | 'CUSTOM';
+  legs?: TrussMember;
   legsRight?: TrussMember;
   beam?: TrussMember;
   beamRight?: TrussMember;
   bottomBeam?: TrussMember;
   depthMember?: TrussMember;
+  members?: TrussCustomMember[];
   bayCount?: number;
   beamAttachCm?: number;
   quantity: number;
@@ -481,10 +493,11 @@ interface TrussStructureConfig {
 | `LSHAPE` | `└─` | L 型，單柱加單邊水平懸挑 |
 | `TSHAPE` | `─┬─` | T 型，單柱加左右水平懸挑 |
 | `MULTI_BAY` | `┌┬┬┐` | 連排門型，多支立柱共享一條頂梁 |
+| `CUSTOM` | axis members | 自訂軸對齊桿件組合，使用 `members` 描述任意垂直 / 水平 / 深度桿 |
 
 ### 各 kind 必填欄位
 
-共同必填：`kind`、`title`、`quantity`、`legs`。
+共同必填：`kind`、`title`、`quantity`。七種預設 kind 仍必填 `legs`；`CUSTOM` 必填 `members`。
 
 | kind | 必填 member | 選填 / 特殊欄位 |
 | --- | --- | --- |
@@ -495,12 +508,30 @@ interface TrussStructureConfig {
 | `LSHAPE` | `legs`, `beam` | `beamAttachCm`，省略時接在柱頂 |
 | `TSHAPE` | `legs`, `beam`, `beamRight` | `beam` 是左梁，`beamRight` 是右梁；`beamAttachCm` 省略時接在柱頂 |
 | `MULTI_BAY` | `legs`, `beam` | `bayCount`，有效值在 UI 會限制為 2-6，省略時為 2 |
+| `CUSTOM` | `members` | `members` 不可為空；preset 欄位不使用 |
+
+### `CUSTOM` 自訂桿件
+
+座標單位是公分。2D 正視圖座標系為 X 向右、Y 向上，原點是結構左下；`zCm` 只用於 `DEPTH` 桿，代表向後的深度座標。3D 模型會以 bounding box 中心對齊物件原點。
+
+| 欄位 | 說明 |
+| --- | --- |
+| `id` | 桿件 ID，同一 config 內需可識別 |
+| `label` | 顯示名稱，選填 |
+| `orientation` | `VERTICAL`、`HORIZONTAL` 或 `DEPTH` |
+| `segments` | 合法段長陣列，至少一段 |
+| `origin` | 桿件起點 `{ xCm, yCm, zCm? }`；`xCm`、`yCm`、`zCm` 皆需 >= 0 |
+| `direction` | 只對 `HORIZONTAL` 有效；`1` 向右，`-1` 向左；省略視為 `1` |
+| `basePlate` | 只對 `VERTICAL` 有效；省略時 `origin.yCm === 0` 會自動算一片鐵板 |
+
+CUSTOM 的 BOM 會加總所有 member 的段數、每根 member 內部段接點、member 間自動偵測的接點，以及符合規則的鐵板。member 間接點規則：任一 member 端點與另一 member 端點或桿身距離 <= 2cm 時算 1 個對接頭，同一點去重。
 
 ### 尺寸計算
 
 - 高度：`legs.segments` 總和，若有 `legsRight` 則取左右柱較高者；L/T 型也會納入 `beamAttachCm`
 - 寬度：一般為 `beam.segments` 總和；T 型為 `beam + beamRight`；Tower 固定顯示 30cm 寬
 - 深度：只有 `BACKDROP` 使用 `depthMember.segments` 總和
+- CUSTOM：所有 member 起點與終點形成的 bounding box；有 `DEPTH` member 時才顯示深度
 
 ## 結構圖 SVG
 
@@ -532,6 +563,54 @@ curl -X POST "$BASE/api/truss/diagram.svg" \
     }
   }' \
   -o truss-diagram.svg
+```
+
+### 直接渲染 CUSTOM L 轉角塔
+
+```bash
+curl -X POST "$BASE/api/truss/diagram.svg" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "config": {
+      "kind": "CUSTOM",
+      "title": "L 轉角塔",
+      "quantity": 1,
+      "members": [
+        {
+          "id": "corner-column",
+          "label": "角柱",
+          "orientation": "VERTICAL",
+          "segments": [200, 150],
+          "origin": { "xCm": 0, "yCm": 0 },
+          "basePlate": true
+        },
+        {
+          "id": "right-column",
+          "label": "右柱",
+          "orientation": "VERTICAL",
+          "segments": [200, 150],
+          "origin": { "xCm": 300, "yCm": 0 },
+          "basePlate": true
+        },
+        {
+          "id": "front-beam",
+          "label": "前梁",
+          "orientation": "HORIZONTAL",
+          "segments": [200, 100],
+          "origin": { "xCm": 0, "yCm": 350 },
+          "direction": 1
+        },
+        {
+          "id": "depth-beam",
+          "label": "深度梁",
+          "orientation": "DEPTH",
+          "segments": [200],
+          "origin": { "xCm": 0, "yCm": 350, "zCm": 0 }
+        }
+      ]
+    }
+  }' \
+  -o l-corner-custom-truss.svg
 ```
 
 轉 PNG 可用：

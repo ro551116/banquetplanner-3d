@@ -54,10 +54,12 @@ const TRUSS_STRUCTURE_KINDS: TrussStructureKind[] = [
   'LSHAPE',
   'TSHAPE',
   'MULTI_BAY',
+  'CUSTOM',
 ];
 
 const TRUSS_STRUCTURE_KIND_SET = new Set<string>(TRUSS_STRUCTURE_KINDS);
 const TRUSS_SEGMENT_LENGTH_SET = new Set<number>(TRUSS_SEGMENT_LENGTHS);
+const TRUSS_CUSTOM_ORIENTATION_SET = new Set<string>(['VERTICAL', 'HORIZONTAL', 'DEPTH']);
 const TRUSS_MEMBER_FIELDS = [
   'legs',
   'legsRight',
@@ -75,6 +77,7 @@ const REQUIRED_MEMBERS_BY_KIND: Record<TrussStructureKind, Array<(typeof TRUSS_M
   LSHAPE: ['legs', 'beam'],
   TSHAPE: ['legs', 'beam', 'beamRight'],
   MULTI_BAY: ['legs', 'beam'],
+  CUSTOM: [],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -104,6 +107,64 @@ function validateTrussMember(value: unknown, fieldName: string, required = false
   return null;
 }
 
+function validateNonNegativeCm(value: unknown, fieldName: string): string | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return `${fieldName} must be a non-negative number`;
+  }
+
+  return null;
+}
+
+function validateTrussCustomMember(value: unknown, index: number): string | null {
+  const fieldName = `config.members[${index}]`;
+
+  if (!isRecord(value)) return `${fieldName} must be an object`;
+
+  if (typeof value.id !== 'string' || value.id.trim() === '') {
+    return `${fieldName}.id is required`;
+  }
+
+  if (value.label !== undefined && typeof value.label !== 'string') {
+    return `${fieldName}.label must be a string`;
+  }
+
+  if (typeof value.orientation !== 'string' || !TRUSS_CUSTOM_ORIENTATION_SET.has(value.orientation)) {
+    return `${fieldName}.orientation is invalid`;
+  }
+
+  const segmentError = validateTrussMember(value, fieldName, true);
+  if (segmentError) return segmentError;
+
+  if (!isRecord(value.origin)) {
+    return `${fieldName}.origin must be an object`;
+  }
+
+  const xError = validateNonNegativeCm(value.origin.xCm, `${fieldName}.origin.xCm`);
+  if (xError) return xError;
+
+  const yError = validateNonNegativeCm(value.origin.yCm, `${fieldName}.origin.yCm`);
+  if (yError) return yError;
+
+  if (value.origin.zCm !== undefined) {
+    const zError = validateNonNegativeCm(value.origin.zCm, `${fieldName}.origin.zCm`);
+    if (zError) return zError;
+  }
+
+  if (value.direction !== undefined && value.direction !== 1 && value.direction !== -1) {
+    return `${fieldName}.direction must be 1 or -1`;
+  }
+
+  if (value.orientation !== 'HORIZONTAL' && value.direction === -1) {
+    return `${fieldName}.direction -1 is only valid for HORIZONTAL members`;
+  }
+
+  if (value.basePlate !== undefined && typeof value.basePlate !== 'boolean') {
+    return `${fieldName}.basePlate must be a boolean`;
+  }
+
+  return null;
+}
+
 function validateTrussConfig(value: unknown): { config?: TrussStructureConfig; error?: string } {
   if (!isRecord(value)) return { error: 'config must be an object' };
 
@@ -121,6 +182,17 @@ function validateTrussConfig(value: unknown): { config?: TrussStructureConfig; e
 
   const kind = value.kind as TrussStructureKind;
   const requiredMembers = new Set(REQUIRED_MEMBERS_BY_KIND[kind]);
+
+  if (kind === 'CUSTOM') {
+    if (!Array.isArray(value.members) || value.members.length === 0) {
+      return { error: 'config.members must contain at least one custom member' };
+    }
+
+    for (let index = 0; index < value.members.length; index += 1) {
+      const error = validateTrussCustomMember(value.members[index], index);
+      if (error) return { error };
+    }
+  }
 
   for (const fieldName of TRUSS_MEMBER_FIELDS) {
     const error = validateTrussMember(value[fieldName], `config.${fieldName}`, requiredMembers.has(fieldName));
