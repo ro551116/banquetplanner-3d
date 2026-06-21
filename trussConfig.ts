@@ -108,19 +108,32 @@ export const getMemberLength = (member?: TrussMember): number => {
   return segmentSum + couplerCount * COUPLER_LENGTH_CM;
 };
 
-export const fitSegments = (targetCm: number): TrussSegmentLength[] => {
-  const target = Math.max(10, Math.floor((Number.isFinite(targetCm) ? targetCm : 10) / 10) * 10);
-  const result: TrussSegmentLength[] = [];
-  let remaining = target;
+export const fitSegments = (totalCm: number): TrussSegmentLength[] => {
+  const target = Math.max(10, Math.floor((Number.isFinite(totalCm) ? totalCm : 10) / 10) * 10);
 
-  for (const length of TRUSS_SEGMENT_LENGTHS) {
-    while (remaining >= length) {
-      result.push(length);
-      remaining -= length;
+  const fillExact = (remaining: number, count: number): TrussSegmentLength[] | null => {
+    if (count === 1) {
+      return TRUSS_SEGMENT_LENGTHS.includes(remaining as TrussSegmentLength)
+        ? [remaining as TrussSegmentLength]
+        : null;
     }
+    for (const len of TRUSS_SEGMENT_LENGTHS) {
+      if (remaining >= len) {
+        const rest = fillExact(remaining - len, count - 1);
+        if (rest) return [len, ...rest];
+      }
+    }
+    return null;
+  };
+
+  for (let n = 1; n <= 20; n++) {
+    const segTarget = target - (n - 1) * COUPLER_LENGTH_CM;
+    if (segTarget <= 0) break;
+    const segs = fillExact(segTarget, n);
+    if (segs) return segs;
   }
 
-  return result.length > 0 ? result : [10];
+  return [10];
 };
 
 const getMemberSegmentsOrFallback = (

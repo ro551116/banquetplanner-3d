@@ -24,7 +24,7 @@ interface TrussDiagramProps {
 
 const VIEWBOX_WIDTH = 1280;
 const VIEWBOX_HEIGHT = 720;
-const BAR = 28;
+const BAR = 25;
 const COUPLER = 25;
 const BASE_PLATE_W = 92;
 const BASE_PLATE_H = 12;
