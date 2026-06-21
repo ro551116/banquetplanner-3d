@@ -81,22 +81,24 @@ const drawMemberSegments = (
     );
 
     if (!isLast) {
-      // Coupler occupies real space between segments (same width as member, couplerPx long)
-      const cx = axis === 'x'
-        ? (direction === 1 ? startX + offset + segmentPx : startX - offset - segmentPx - couplerPx)
-        : startX - BAR / 2;
-      const cy = axis === 'x' ? startY - BAR / 2 : startY - offset - segmentPx - couplerPx;
-      elements.push(
-        <rect
-          key={`${keyPrefix}-coupler-${index}`}
-          x={cx}
-          y={cy}
-          width={Math.max(1, axis === 'x' ? couplerPx : BAR)}
-          height={Math.max(1, axis === 'x' ? BAR : couplerPx)}
-          fill="#111"
-        />
-      );
-      offset += segmentPx + couplerPx;
+      if (axis === 'y') {
+        // Vertical: coupler occupies real space (couplerPx tall, BAR wide)
+        const cy = startY - offset - segmentPx - couplerPx;
+        elements.push(
+          <rect
+            key={`${keyPrefix}-coupler-${index}`}
+            x={startX - BAR / 2}
+            y={cy}
+            width={BAR}
+            height={Math.max(1, couplerPx)}
+            fill="#111"
+          />
+        );
+        offset += segmentPx + couplerPx;
+      } else {
+        // Horizontal: direct join, no coupler gap
+        offset += segmentPx;
+      }
     } else {
       offset += segmentPx;
     }

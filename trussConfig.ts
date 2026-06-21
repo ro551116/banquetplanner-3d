@@ -89,7 +89,7 @@ export const getEffectiveBayCount = (config: TrussStructureConfig): number => (
 );
 
 export const getEffectiveBeamAttachCm = (config: TrussStructureConfig): number => {
-  const legHeight = getMemberLength(config.legs);
+  const legHeight = getMemberLength(config.legs, true);
   const attach = config.beamAttachCm ?? legHeight;
   if (!Number.isFinite(attach)) return legHeight;
   return Math.max(0, Math.round(attach));
@@ -101,16 +101,32 @@ export const sanitizeMember = (member?: TrussMember): TrussMember => ({
   ),
 });
 
-export const getMemberLength = (member?: TrussMember): number => {
+// Horizontal members (beams) are directly joined — no coupler length added.
+// Vertical members (legs) use couplers; call with withCouplers=true.
+export const getMemberLength = (member?: TrussMember, withCouplers = false): number => {
   const segments = sanitizeMember(member).segments;
   const segmentSum = segments.reduce((sum, segment) => sum + segment, 0);
-  const couplerCount = Math.max(0, segments.length - 1);
-  return segmentSum + couplerCount * COUPLER_LENGTH_CM;
+  if (!withCouplers || segments.length <= 1) return segmentSum;
+  return segmentSum + (segments.length - 1) * COUPLER_LENGTH_CM;
 };
 
+// For horizontal members: simple greedy fill, no coupler overhead.
 export const fitSegments = (totalCm: number): TrussSegmentLength[] => {
   const target = Math.max(10, Math.floor((Number.isFinite(totalCm) ? totalCm : 10) / 10) * 10);
+  const result: TrussSegmentLength[] = [];
+  let remaining = target;
+  for (const length of TRUSS_SEGMENT_LENGTHS) {
+    while (remaining >= length) {
+      result.push(length);
+      remaining -= length;
+    }
+  }
+  return result.length > 0 ? result : [10];
+};
 
+// For vertical members: reverse-solve so sum(segments) + (n-1)*COUPLER_LENGTH_CM = totalCm.
+export const fitVerticalSegments = (totalCm: number): TrussSegmentLength[] => {
+  const target = Math.max(10, Math.floor((Number.isFinite(totalCm) ? totalCm : 10) / 10) * 10);
   const fillExact = (remaining: number, count: number): TrussSegmentLength[] | null => {
     if (count === 1) {
       return TRUSS_SEGMENT_LENGTHS.includes(remaining as TrussSegmentLength)
@@ -125,14 +141,12 @@ export const fitSegments = (totalCm: number): TrussSegmentLength[] => {
     }
     return null;
   };
-
   for (let n = 1; n <= 20; n++) {
     const segTarget = target - (n - 1) * COUPLER_LENGTH_CM;
     if (segTarget <= 0) break;
     const segs = fillExact(segTarget, n);
     if (segs) return segs;
   }
-
   return [10];
 };
 
@@ -347,8 +361,8 @@ export const createDefaultTrussConfig = (
   }
 
   const halfWidth = Math.max(10, Math.round(widthCm / 2));
-  const legs = { segments: fitSegments(heightCm) };
-  const fittedHeightCm = getMemberLength(legs);
+  const legs = { segments: fitVerticalSegments(heightCm) };
+  const fittedHeightCm = getMemberLength(legs, true);
   const beam = kind === 'TOWER' ? undefined : { segments: fitSegments(kind === 'TSHAPE' ? halfWidth : widthCm) };
   const beamRight = kind === 'TSHAPE' ? { segments: fitSegments(halfWidth) } : undefined;
   const bottomBeam = kind === 'BOX' ? { segments: fitSegments(widthCm) } : undefined;
@@ -378,12 +392,12 @@ export const getTrussDimensions = (config: TrussStructureConfig): TrussDimension
     };
   }
 
-  const leftHeight = getMemberLength(config.legs);
+  const leftHeight = getMemberLength(config.legs, true);
   const rightHeight = (
     config.kind === 'GOALPOST' ||
     config.kind === 'BACKDROP' ||
     config.kind === 'BOX'
-  ) ? getMemberLength(getEffectiveRightLeg(config)) : 0;
+  ) ? getMemberLength(getEffectiveRightLeg(config), true) : 0;
   const attachHeight = (
     config.kind === 'LSHAPE' ||
     config.kind === 'TSHAPE'
@@ -560,7 +574,7 @@ export const convertPresetToMembers = (config: TrussStructureConfig): TrussCusto
   const dims = getTrussDimensions(config);
   const beamLength = getMemberLength(config.beam);
   const rightLeg = getEffectiveRightLeg(config);
-  const baseLegSegments = getMemberSegmentsOrFallback(config.legs, fitSegments(dims.heightCm || 10));
+  const baseLegSegments = getMemberSegmentsOrFallback(config.legs, fitVerticalSegments(dims.heightCm || 10));
   const rightLegSegments = getMemberSegmentsOrFallback(rightLeg, baseLegSegments);
   const beamSegments = getMemberSegmentsOrFallback(config.beam, fitSegments(Math.max(10, dims.widthCm || 10)));
   const members: TrussCustomMember[] = [];
