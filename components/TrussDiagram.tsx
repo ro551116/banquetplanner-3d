@@ -1,6 +1,7 @@
 import React from 'react';
 import { TrussMember, TrussSegmentLength, TrussStructureConfig } from '../types';
 import {
+  COUPLER_LENGTH_CM,
   customMemberHasBasePlate,
   detectCustomJoints,
   formatTrussTitle,
@@ -38,11 +39,13 @@ const drawMemberSegments = (
   keyPrefix: string,
   direction: 1 | -1 = 1,
 ) => {
+  const couplerPx = COUPLER_LENGTH_CM * scale;
   let offset = 0;
   const elements: React.ReactNode[] = [];
 
   member.segments.forEach((segment, index) => {
     const segmentPx = segment * scale;
+    const isLast = index === member.segments.length - 1;
     const x = axis === 'x'
       ? (direction === 1 ? startX + offset : startX - offset - segmentPx)
       : startX - BAR / 2;
@@ -77,22 +80,26 @@ const drawMemberSegments = (
       </g>
     );
 
-    if (index < member.segments.length - 1) {
-      const cx = axis === 'x' ? startX + direction * (offset + segmentPx) : startX;
-      const cy = axis === 'x' ? startY : startY - offset - segmentPx;
+    if (!isLast) {
+      // Coupler occupies real space between segments (same width as member, couplerPx long)
+      const cx = axis === 'x'
+        ? (direction === 1 ? startX + offset + segmentPx : startX - offset - segmentPx - couplerPx)
+        : startX - BAR / 2;
+      const cy = axis === 'x' ? startY - BAR / 2 : startY - offset - segmentPx - couplerPx;
       elements.push(
         <rect
           key={`${keyPrefix}-coupler-${index}`}
-          x={cx - COUPLER / 2}
-          y={cy - COUPLER / 2}
-          width={COUPLER}
-          height={COUPLER}
+          x={cx}
+          y={cy}
+          width={Math.max(1, axis === 'x' ? couplerPx : BAR)}
+          height={Math.max(1, axis === 'x' ? BAR : couplerPx)}
           fill="#111"
         />
       );
+      offset += segmentPx + couplerPx;
+    } else {
+      offset += segmentPx;
     }
-
-    offset += segmentPx;
   });
 
   return elements;
