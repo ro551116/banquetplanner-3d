@@ -10,6 +10,7 @@ import {
 } from './types';
 
 export const TRUSS_SEGMENT_LENGTHS: TrussSegmentLength[] = [200, 150, 100, 50, 20, 10];
+export const COUPLER_LENGTH_CM = 25;
 
 export const TRUSS_SEGMENT_COLORS: Record<TrussSegmentLength, string> = {
   200: '#4da6e8',
@@ -101,7 +102,10 @@ export const sanitizeMember = (member?: TrussMember): TrussMember => ({
 });
 
 export const getMemberLength = (member?: TrussMember): number => {
-  return sanitizeMember(member).segments.reduce((sum, segment) => sum + segment, 0);
+  const segments = sanitizeMember(member).segments;
+  const segmentSum = segments.reduce((sum, segment) => sum + segment, 0);
+  const couplerCount = Math.max(0, segments.length - 1);
+  return segmentSum + couplerCount * COUPLER_LENGTH_CM;
 };
 
 export const fitSegments = (targetCm: number): TrussSegmentLength[] => {
