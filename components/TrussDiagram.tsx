@@ -39,13 +39,11 @@ const drawMemberSegments = (
   keyPrefix: string,
   direction: 1 | -1 = 1,
 ) => {
-  const couplerPx = COUPLER_LENGTH_CM * scale;
   let offset = 0;
   const elements: React.ReactNode[] = [];
 
   member.segments.forEach((segment, index) => {
     const segmentPx = segment * scale;
-    const isLast = index === member.segments.length - 1;
     const x = axis === 'x'
       ? (direction === 1 ? startX + offset : startX - offset - segmentPx)
       : startX - BAR / 2;
@@ -80,28 +78,7 @@ const drawMemberSegments = (
       </g>
     );
 
-    if (!isLast) {
-      if (axis === 'y') {
-        // Vertical: coupler occupies real space (couplerPx tall, BAR wide)
-        const cy = startY - offset - segmentPx - couplerPx;
-        elements.push(
-          <rect
-            key={`${keyPrefix}-coupler-${index}`}
-            x={startX - BAR / 2}
-            y={cy}
-            width={BAR}
-            height={Math.max(1, couplerPx)}
-            fill="#111"
-          />
-        );
-        offset += segmentPx + couplerPx;
-      } else {
-        // Horizontal: direct join, no coupler gap
-        offset += segmentPx;
-      }
-    } else {
-      offset += segmentPx;
-    }
+    offset += segmentPx;
   });
 
   return elements;
@@ -113,6 +90,12 @@ const BasePlate = ({ x, y }: { x: number; y: number }) => (
 
 const Joint = ({ x, y }: { x: number; y: number }) => (
   <rect x={x - COUPLER / 2} y={y - COUPLER / 2} width={COUPLER} height={COUPLER} fill="#111" />
+);
+
+// 90-degree corner coupler: fills the space between leg top and beam.
+// y = top of coupler (same as beam centerline), extends down by couplerPx to meet the leg top.
+const CornerCoupler = ({ x, y, couplerPx }: { x: number; y: number; couplerPx: number }) => (
+  <rect x={x - BAR / 2} y={y} width={BAR} height={Math.max(1, couplerPx)} fill="#111" />
 );
 
 const Legend = () => (
@@ -177,16 +160,18 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
   const leftX = frontCenterX - frontDrawWidth / 2;
   const rightX = frontCenterX + frontDrawWidth / 2;
   const baseY = contentBottom - 18;
-  const topY = baseY - dims.heightCm * frontScale;
+  const couplerPx = COUPLER_LENGTH_CM * frontScale;
+  // topY = beam centerline = one corner coupler above the leg top
+  const topY = baseY - (dims.heightCm - COUPLER_LENGTH_CM) * frontScale;
   const bottomBeamY = baseY - BAR / 2;
   const sideX = contentLeft + frontWidth + 112;
   const sideDepthPx = (dims.depthCm || 0) * sideScale;
   const sideBaseY = contentBottom - 18;
-  const sideTopY = sideBaseY - dims.heightCm * sideScale;
+  const sideTopY = sideBaseY - (dims.heightCm - COUPLER_LENGTH_CM) * sideScale;
   const legs = config.legs || { segments: [] };
   const rightLeg = getEffectiveRightLeg(config);
   const leftBeamCm = getMemberLength(config.beam);
-  const attachY = baseY - getEffectiveBeamAttachCm(config) * frontScale;
+  const attachY = baseY - (getEffectiveBeamAttachCm(config) + COUPLER_LENGTH_CM) * frontScale;
   const bayCount = getEffectiveBayCount(config);
   const tColumnX = config.kind === 'TSHAPE'
     ? leftX + leftBeamCm * frontScale
@@ -203,8 +188,8 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
       {drawMemberSegments(legs, leftX, baseY, 'y', frontScale, 'left-leg')}
       {drawMemberSegments(rightLeg, rightX, baseY, 'y', frontScale, 'right-leg')}
       {config.beam && drawMemberSegments(config.beam, leftX, topY, 'x', frontScale, 'beam')}
-      <Joint x={leftX} y={topY} />
-      <Joint x={rightX} y={topY} />
+      <CornerCoupler x={leftX} y={topY} couplerPx={couplerPx} />
+      <CornerCoupler x={rightX} y={topY} couplerPx={couplerPx} />
       <BasePlate x={leftX} y={baseY + 14} />
       <BasePlate x={rightX} y={baseY + 14} />
     </g>
@@ -337,7 +322,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
         <g>
           {drawMemberSegments(legs, leftX, baseY, 'y', frontScale, 'l-leg')}
           {config.beam && drawMemberSegments(config.beam, leftX, attachY, 'x', frontScale, 'l-beam')}
-          <Joint x={leftX} y={attachY} />
+          <CornerCoupler x={leftX} y={attachY} couplerPx={couplerPx} />
           <BasePlate x={leftX} y={baseY + 14} />
         </g>
       )}
@@ -347,8 +332,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
           {drawMemberSegments(legs, tColumnX, baseY, 'y', frontScale, 't-leg')}
           {config.beam && drawMemberSegments(config.beam, tColumnX, attachY, 'x', frontScale, 't-left-beam', -1)}
           {config.beamRight && drawMemberSegments(config.beamRight, tColumnX, attachY, 'x', frontScale, 't-right-beam')}
-          <Joint x={tColumnX - COUPLER * 0.35} y={attachY} />
-          <Joint x={tColumnX + COUPLER * 0.35} y={attachY} />
+          <CornerCoupler x={tColumnX} y={attachY} couplerPx={couplerPx} />
           <BasePlate x={tColumnX} y={baseY + 14} />
         </g>
       )}
@@ -361,7 +345,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
               return (
                 <g key={`multi-column-${index}`}>
                 {drawMemberSegments(legs, x, baseY, 'y', frontScale, `multi-leg-${index}`)}
-                <Joint x={x} y={topY} />
+                <CornerCoupler x={x} y={topY} couplerPx={couplerPx} />
                 <BasePlate x={x} y={baseY + 14} />
               </g>
             );
