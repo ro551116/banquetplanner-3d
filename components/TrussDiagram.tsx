@@ -25,7 +25,7 @@ interface TrussDiagramProps {
 const VIEWBOX_WIDTH = 1280;
 const VIEWBOX_HEIGHT = 720;
 const BAR = 28;
-const COUPLER = 20;
+const COUPLER = 25;
 const BASE_PLATE_W = 92;
 const BASE_PLATE_H = 12;
 
@@ -110,7 +110,7 @@ const Legend = () => (
   <g transform="translate(38 112)">
     <text x={0} y={0} fontSize={22} fontWeight={800} fill="#111">圖例</text>
     <g transform="translate(0 34)">
-      <rect x={0} y={-12} width={18} height={18} fill="#111" />
+      <rect x={0} y={-12} width={25} height={25} fill="#111" />
       <text x={34} y={3} fontSize={16} fill="#111">對接頭</text>
     </g>
     {TRUSS_SEGMENT_LENGTHS.map((length, index) => (
