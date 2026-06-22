@@ -654,14 +654,14 @@ export const convertPresetToMembers = (config: TrussStructureConfig): TrussCusto
 
     case 'MULTI_BAY': {
       const bayCount = getEffectiveBayCount(config);
-      addMember('preset-multi-beam', '連續頂梁', 'HORIZONTAL', beamSegments, { xCm: 0, yCm: dims.heightCm }, 1);
+      addMember('preset-multi-beam', '連續頂梁', 'HORIZONTAL', beamSegments, { xCm: COUPLER_LENGTH_CM, yCm: dims.heightCm }, 1);
       Array.from({ length: bayCount + 1 }).forEach((_, index) => {
         addMember(
           `preset-multi-leg-${index}`,
           `第${index + 1}柱`,
           'VERTICAL',
           baseLegSegments,
-          { xCm: bayCount === 0 ? 0 : (beamLength * index) / bayCount, yCm: 0 },
+          { xCm: COUPLER_LENGTH_CM / 2 + (beamLength * index) / bayCount, yCm: 0 },
           undefined,
           true,
         );

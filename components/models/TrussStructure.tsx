@@ -13,6 +13,7 @@ import {
   getTrussDimensions,
   isCustomCouplerJoint,
   TRUSS_SEGMENT_COLORS,
+  COUPLER_LENGTH_CM,
 } from '../../trussConfig';
 import { Highlight } from './shared';
 
@@ -208,6 +209,8 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
   const topY = height + 0.04;
   const attachY = toMeters(getEffectiveBeamAttachCm(config)) + 0.04;
   const leftBeamLength = toMeters(getMemberLength(config.beam));
+  const beamLength = getMemberLength(config.beam);
+  const couplerMeters = toMeters(COUPLER_LENGTH_CM);
   const bayCount = getEffectiveBayCount(config);
   const tColumnX = config.kind === 'TSHAPE' ? leftX + leftBeamLength : 0;
   const customMembers = config.kind === 'CUSTOM' ? config.members || [] : [];
@@ -396,7 +399,7 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
           {config.beam && (
             <MemberRenderer
               member={config.beam}
-              start={new THREE.Vector3(leftX, topY, 0)}
+              start={new THREE.Vector3(leftX + couplerMeters, topY, 0)}
               axis={new THREE.Vector3(1, 0, 0)}
               schematicColors={schematicColors}
               color={renderColor}
@@ -404,7 +407,7 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
             />
           )}
           {Array.from({ length: bayCount + 1 }).map((_, index) => {
-            const x = leftX + (width * index) / bayCount;
+            const x = leftX + couplerMeters / 2 + (toMeters(beamLength) * index) / bayCount;
             return (
               <React.Fragment key={`multi-column-${index}`}>
                 <MemberRenderer
