@@ -159,15 +159,24 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
   const frontCenterX = contentLeft + frontWidth / 2;
   const leftX = frontCenterX - frontDrawWidth / 2;
   const rightX = frontCenterX + frontDrawWidth / 2;
+  const isRectangularCornerKind = config.kind === 'GOALPOST' || config.kind === 'BACKDROP' || config.kind === 'BOX';
+  const leftCornerX = isRectangularCornerKind ? leftX + COUPLER_LENGTH_CM * frontScale / 2 : leftX;
+  const rightCornerX = isRectangularCornerKind ? rightX - COUPLER_LENGTH_CM * frontScale / 2 : rightX;
+  const topBeamStartX = isRectangularCornerKind ? leftX + COUPLER_LENGTH_CM * frontScale : leftX;
+  const bottomBeamStartX = topBeamStartX;
   const baseY = contentBottom - 18;
   const couplerPx = COUPLER_LENGTH_CM * frontScale;
-  // topY = beam centerline = one corner coupler above the leg top
-  const topY = baseY - (dims.heightCm - COUPLER_LENGTH_CM) * frontScale;
+  const topY = isRectangularCornerKind
+    ? baseY - dims.heightCm * frontScale
+    : baseY - (dims.heightCm - COUPLER_LENGTH_CM) * frontScale;
+  const beamY = isRectangularCornerKind ? topY + BAR / 2 : topY;
   const bottomBeamY = baseY - BAR / 2;
   const sideX = contentLeft + frontWidth + 112;
   const sideDepthPx = (dims.depthCm || 0) * sideScale;
   const sideBaseY = contentBottom - 18;
-  const sideTopY = sideBaseY - (dims.heightCm - COUPLER_LENGTH_CM) * sideScale;
+  const sideTopY = config.kind === 'BACKDROP'
+    ? sideBaseY - dims.heightCm * sideScale
+    : sideBaseY - (dims.heightCm - COUPLER_LENGTH_CM) * sideScale;
   const legs = config.legs || { segments: [] };
   const rightLeg = getEffectiveRightLeg(config);
   const leftBeamCm = getMemberLength(config.beam);
@@ -185,13 +194,13 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
 
   const renderTwoLegTopBeam = () => (
     <g>
-      {drawMemberSegments(legs, leftX, baseY, 'y', frontScale, 'left-leg')}
-      {drawMemberSegments(rightLeg, rightX, baseY, 'y', frontScale, 'right-leg')}
-      {config.beam && drawMemberSegments(config.beam, leftX, topY, 'x', frontScale, 'beam')}
-      <CornerCoupler x={leftX} y={topY} couplerPx={couplerPx} />
-      <CornerCoupler x={rightX} y={topY} couplerPx={couplerPx} />
-      <BasePlate x={leftX} y={baseY + 14} />
-      <BasePlate x={rightX} y={baseY + 14} />
+      {drawMemberSegments(legs, leftCornerX, baseY, 'y', frontScale, 'left-leg')}
+      {drawMemberSegments(rightLeg, rightCornerX, baseY, 'y', frontScale, 'right-leg')}
+      {config.beam && drawMemberSegments(config.beam, topBeamStartX, beamY, 'x', frontScale, 'beam')}
+      <CornerCoupler x={leftCornerX} y={topY} couplerPx={couplerPx} />
+      <CornerCoupler x={rightCornerX} y={topY} couplerPx={couplerPx} />
+      <BasePlate x={leftCornerX} y={baseY + 14} />
+      <BasePlate x={rightCornerX} y={baseY + 14} />
     </g>
   );
 
@@ -312,9 +321,9 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
       {config.kind === 'BOX' && (
         <g>
           {renderTwoLegTopBeam()}
-          {config.bottomBeam && drawMemberSegments(config.bottomBeam, leftX, bottomBeamY, 'x', frontScale, 'bottom-beam')}
-          <Joint x={leftX} y={bottomBeamY} />
-          <Joint x={rightX} y={bottomBeamY} />
+          {config.bottomBeam && drawMemberSegments(config.bottomBeam, bottomBeamStartX, bottomBeamY, 'x', frontScale, 'bottom-beam')}
+          <Joint x={leftCornerX} y={bottomBeamY} />
+          <Joint x={rightCornerX} y={bottomBeamY} />
         </g>
       )}
 
@@ -359,9 +368,9 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
         <g>
           <ViewLabel x={sideX + sideDepthPx / 2} y={86}>側視圖</ViewLabel>
           {drawMemberSegments(legs, sideX, sideBaseY, 'y', sideScale, 'side-leg')}
-          {drawMemberSegments(config.depthMember, sideX, sideTopY, 'x', sideScale, 'depth')}
-          <Joint x={sideX} y={sideTopY} />
-          <Joint x={sideX + sideDepthPx} y={sideTopY} />
+          {drawMemberSegments(config.depthMember, sideX, sideTopY + BAR / 2, 'x', sideScale, 'depth')}
+          <Joint x={sideX} y={sideTopY + BAR / 2} />
+          <Joint x={sideX + sideDepthPx} y={sideTopY + BAR / 2} />
           <BasePlate x={sideX} y={sideBaseY + 14} />
         </g>
       )}
