@@ -12,6 +12,7 @@ import {
   getEffectiveRightLeg,
   getMemberLength,
   getTrussDimensions,
+  isCustomCouplerJoint,
   TRUSS_SEGMENT_COLORS,
   TRUSS_SEGMENT_LENGTHS,
 } from '../trussConfig';
@@ -210,7 +211,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
   const mapCustomSideY = (yCm: number) => sideBaseY - (yCm - customBounds.minYCm) * sideScale;
   const customDepthIds = new Set(customMembers.filter(member => member.orientation === 'DEPTH').map(member => member.id));
   const customDepthJoints = customJoints.filter(joint => (
-    joint.type === 'INTER_MEMBER' && joint.memberIds.some(memberId => customDepthIds.has(memberId))
+    isCustomCouplerJoint(joint, customMembers) && joint.memberIds.some(memberId => customDepthIds.has(memberId))
   ));
   const customSideVerticalIds = new Set(
     customDepthJoints.flatMap(joint => joint.memberIds)
@@ -247,7 +248,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
         return null;
       })}
       {customJoints
-        .filter(joint => joint.type === 'INTER_MEMBER')
+        .filter(joint => isCustomCouplerJoint(joint, customMembers))
         .map(joint => (
           <Joint key={joint.id} x={mapCustomFrontX(joint.xCm)} y={mapCustomFrontY(joint.yCm)} />
         ))}

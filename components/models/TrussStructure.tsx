@@ -11,6 +11,7 @@ import {
   getEffectiveRightLeg,
   getMemberLength,
   getTrussDimensions,
+  isCustomCouplerJoint,
   TRUSS_SEGMENT_COLORS,
 } from '../../trussConfig';
 import { Highlight } from './shared';
@@ -177,9 +178,6 @@ const MemberRenderer = ({
         return (
           <React.Fragment key={`${keyPrefix}-${index}`}>
             <OrientedSegment start={start} axis={axisUnit} offset={currentOffset} lengthCm={segment} color={segmentColor} />
-            {index < member.segments.length - 1 && (
-              <CouplerCube position={start.clone().add(axisUnit.clone().multiplyScalar(offset))} />
-            )}
           </React.Fragment>
         );
       })}
@@ -266,7 +264,7 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
   );
 
   const renderCustomStructure = () => {
-    const interMemberJoints = detectCustomJoints(customMembers).filter(joint => joint.type === 'INTER_MEMBER');
+    const interMemberJoints = detectCustomJoints(customMembers).filter(joint => isCustomCouplerJoint(joint, customMembers));
 
     return (
       <>

@@ -307,6 +307,16 @@ export const detectCustomJoints = (members: TrussCustomMember[] = []): TrussCust
   return [...internalJoints, ...interMemberJoints];
 };
 
+export const isCustomCouplerJoint = (joint: TrussCustomJoint, members: TrussCustomMember[] = []): boolean => {
+  if (joint.type !== 'INTER_MEMBER') return false;
+  const orientations = new Set(
+    joint.memberIds
+      .map(memberId => members.find(member => member.id === memberId)?.orientation)
+      .filter((orientation): orientation is TrussMemberOrientation => Boolean(orientation))
+  );
+  return orientations.size >= 2;
+};
+
 export const createDefaultTrussConfig = (
   kind: TrussStructureConfig['kind'] = 'GOALPOST',
   title = 'Truss 結構',
@@ -331,26 +341,40 @@ export const createDefaultTrussConfig = (
     };
   }
 
-  const halfWidth = Math.max(10, Math.round(widthCm / 2));
   const legTargetCm = Math.max(10, (() => {
     switch (kind) {
       case 'GOALPOST':
       case 'BACKDROP':
+      case 'LSHAPE':
+      case 'TSHAPE':
+      case 'MULTI_BAY':
         return heightCm - COUPLER_LENGTH_CM;
       case 'BOX':
-      default:
         return heightCm - 2 * COUPLER_LENGTH_CM;
+      case 'TOWER':
+      default:
+        return heightCm;
     }
   })());
-  const beamTargetCm = Math.max(10, (
-    kind === 'GOALPOST' || kind === 'BACKDROP' || kind === 'BOX'
-      ? widthCm - 2 * COUPLER_LENGTH_CM
-      : widthCm
-  ));
+  const beamTargetCm = Math.max(10, (() => {
+    switch (kind) {
+      case 'GOALPOST':
+      case 'BACKDROP':
+      case 'BOX':
+      case 'MULTI_BAY':
+        return widthCm - 2 * COUPLER_LENGTH_CM;
+      case 'LSHAPE':
+        return widthCm - COUPLER_LENGTH_CM;
+      case 'TSHAPE':
+        return Math.round((widthCm - COUPLER_LENGTH_CM) / 2);
+      default:
+        return widthCm;
+    }
+  })());
   const legs = { segments: fitSegments(legTargetCm) };
-  const fittedHeightCm = getMemberLength(legs) + 2 * COUPLER_LENGTH_CM;
-  const beam = kind === 'TOWER' ? undefined : { segments: fitSegments(kind === 'TSHAPE' ? halfWidth : beamTargetCm) };
-  const beamRight = kind === 'TSHAPE' ? { segments: fitSegments(halfWidth) } : undefined;
+  const fittedLegHeightCm = getMemberLength(legs);
+  const beam = kind === 'TOWER' ? undefined : { segments: fitSegments(beamTargetCm) };
+  const beamRight = kind === 'TSHAPE' ? { segments: fitSegments(beamTargetCm) } : undefined;
   const bottomBeam = kind === 'BOX' ? { segments: fitSegments(beamTargetCm) } : undefined;
   const depthMember = kind === 'BACKDROP' ? { segments: fitSegments(depthCm) } : undefined;
 
@@ -362,7 +386,7 @@ export const createDefaultTrussConfig = (
     bottomBeam,
     depthMember,
     bayCount: kind === 'MULTI_BAY' ? 2 : undefined,
-    beamAttachCm: kind === 'LSHAPE' || kind === 'TSHAPE' ? fittedHeightCm : undefined,
+    beamAttachCm: kind === 'LSHAPE' || kind === 'TSHAPE' ? fittedLegHeightCm : undefined,
     quantity: clampQuantity(quantity),
     title,
   };
@@ -385,10 +409,15 @@ export const getTrussDimensions = (config: TrussStructureConfig): TrussDimension
     switch (config.kind) {
       case 'GOALPOST':
       case 'BACKDROP':
+      case 'LSHAPE':
+      case 'TSHAPE':
+      case 'MULTI_BAY':
         return COUPLER_LENGTH_CM;
       case 'BOX':
-      default:
         return 2 * COUPLER_LENGTH_CM;
+      case 'TOWER':
+      default:
+        return 0;
     }
   })();
   const leftHeight = getMemberLength(config.legs) + heightOffset;
@@ -400,7 +429,7 @@ export const getTrussDimensions = (config: TrussStructureConfig): TrussDimension
   const attachHeight = (
     config.kind === 'LSHAPE' ||
     config.kind === 'TSHAPE'
-  ) ? getEffectiveBeamAttachCm(config) : 0;
+  ) ? getEffectiveBeamAttachCm(config) + COUPLER_LENGTH_CM : 0;
   const heightCm = Math.max(leftHeight, rightHeight, attachHeight);
   const widthCm = (() => {
     switch (config.kind) {
@@ -409,11 +438,12 @@ export const getTrussDimensions = (config: TrussStructureConfig): TrussDimension
       case 'GOALPOST':
       case 'BACKDROP':
       case 'BOX':
-        return beamLength + 2 * COUPLER_LENGTH_CM;
-      case 'TSHAPE':
-        return beamLength + beamRightLength;
-      case 'LSHAPE':
       case 'MULTI_BAY':
+        return beamLength + 2 * COUPLER_LENGTH_CM;
+      case 'LSHAPE':
+        return beamLength + COUPLER_LENGTH_CM;
+      case 'TSHAPE':
+        return beamLength + beamRightLength + COUPLER_LENGTH_CM;
       default:
         return beamLength;
     }
@@ -495,7 +525,7 @@ export const calculateTrussBom = (config: TrussStructureConfig, quantityOverride
           bom.basePlates += quantity;
         }
       });
-      bom.couplers += detectCustomJoints(members).length * quantity;
+      bom.couplers += detectCustomJoints(members).filter(joint => isCustomCouplerJoint(joint, members)).length * quantity;
       break;
     }
 
@@ -515,7 +545,7 @@ export const calculateTrussBom = (config: TrussStructureConfig, quantityOverride
       addMemberToBom(bom, config.legs, quantity);
       addMemberToBom(bom, config.beam, quantity);
       addMemberToBom(bom, config.beamRight, quantity);
-      bom.couplers += 2 * quantity;
+      bom.couplers += quantity;
       bom.basePlates += quantity;
       break;
 
