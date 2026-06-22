@@ -17,6 +17,7 @@ import {
   getCustomMemberEndpoint,
   getMemberLength,
   getTrussDimensions,
+  COUPLER_LENGTH_CM,
   TRUSS_SEGMENT_COLORS,
   TRUSS_SEGMENT_LENGTHS,
 } from '../trussConfig';
@@ -361,10 +362,22 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
       return;
     }
 
-    setBeam({ segments: fitSegments(targetWidth) });
+    const targetMainBeam = (() => {
+      switch (nextKind) {
+        case 'GOALPOST':
+        case 'BACKDROP':
+        case 'BOX':
+          return targetWidth - 2 * COUPLER_LENGTH_CM;
+        case 'MULTI_BAY':
+          return targetWidth - (clampedBayCount + 1) * COUPLER_LENGTH_CM;
+        default:
+          return targetWidth;
+      }
+    })();
+    setBeam({ segments: fitSegments(targetMainBeam) });
 
     if (nextKind === 'BOX') {
-      setBottomBeam({ segments: fitSegments(targetBottomWidth) });
+      setBottomBeam({ segments: fitSegments(targetBottomWidth - 2 * COUPLER_LENGTH_CM) });
     }
 
     if (nextKind === 'BACKDROP') {
@@ -727,7 +740,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                   onChange={(raw) => {
                     const next = clampInt(raw, targetBottomWidth, 10);
                     setTargetBottomWidth(next);
-                    setBottomBeam({ segments: fitSegments(next) });
+                    setBottomBeam({ segments: fitSegments(next - 2 * COUPLER_LENGTH_CM) });
                   }}
                 />
               )}
@@ -737,7 +750,11 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                   <label className="text-[10px] font-bold text-slate-500 uppercase">跨數</label>
                   <select
                     value={clampedBayCount}
-                    onChange={(e) => setBayCount(Number(e.target.value))}
+                    onChange={(e) => {
+                      const nextBayCount = Number(e.target.value);
+                      setBayCount(nextBayCount);
+                      setBeam({ segments: fitSegments(targetWidth - (nextBayCount + 1) * COUPLER_LENGTH_CM) });
+                    }}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
                   >
                     {[2, 3, 4, 5, 6].map(count => (

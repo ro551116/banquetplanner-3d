@@ -14,6 +14,7 @@ import {
   isCustomCouplerJoint,
   TRUSS_SEGMENT_COLORS,
   COUPLER_LENGTH_CM,
+  splitMemberIntoBays,
 } from '../../trussConfig';
 import { Highlight } from './shared';
 
@@ -394,20 +395,28 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
         </>
       )}
 
-      {config.kind === 'MULTI_BAY' && (
-        <>
-          {config.beam && (
+      {config.kind === 'MULTI_BAY' && (() => {
+        const bayMembers = splitMemberIntoBays(config.beam, bayCount);
+        let beamCursorX = leftX + couplerMeters;
+        let columnCursorX = leftX + couplerMeters / 2;
+        const beams = bayMembers.map((bayMember, index) => {
+          const startX = beamCursorX;
+          beamCursorX += toMeters(getMemberLength(bayMember)) + couplerMeters;
+          return (
             <MemberRenderer
-              member={config.beam}
-              start={new THREE.Vector3(leftX + couplerMeters, topY, 0)}
+              key={`multi-beam-${index}`}
+              member={bayMember}
+              start={new THREE.Vector3(startX, topY, 0)}
               axis={new THREE.Vector3(1, 0, 0)}
               schematicColors={schematicColors}
               color={renderColor}
-              keyPrefix="multi-beam"
+              keyPrefix={`multi-beam-${index}`}
             />
-          )}
-          {Array.from({ length: bayCount + 1 }).map((_, index) => {
-            const x = leftX + couplerMeters / 2 + (toMeters(beamLength) * index) / bayCount;
+          );
+        });
+        const columns = Array.from({ length: bayCount + 1 }).map((_, index) => {
+            const x = columnCursorX;
+            columnCursorX += (index < bayMembers.length ? toMeters(getMemberLength(bayMembers[index])) : 0) + couplerMeters;
             return (
               <React.Fragment key={`multi-column-${index}`}>
                 <MemberRenderer
@@ -422,9 +431,9 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
                 <BasePlate x={x} z={0} />
               </React.Fragment>
             );
-          })}
-        </>
-      )}
+          });
+        return <>{beams}{columns}</>;
+      })()}
 
       {config.kind === 'BACKDROP' && config.depthMember && (
         <>

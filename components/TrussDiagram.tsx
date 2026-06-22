@@ -13,6 +13,7 @@ import {
   getMemberLength,
   getTrussDimensions,
   isCustomCouplerJoint,
+  splitMemberIntoBays,
   TRUSS_SEGMENT_COLORS,
   TRUSS_SEGMENT_LENGTHS,
 } from '../trussConfig';
@@ -353,21 +354,28 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
         </g>
       )}
 
-      {config.kind === 'MULTI_BAY' && (
-        <g>
-          {config.beam && drawMemberSegments(config.beam, topBeamStartX, beamY, 'x', frontScale, 'multi-beam')}
-          {Array.from({ length: bayCount + 1 }).map((_, index) => {
-              const x = leftCornerX + ((rightCornerX - leftCornerX) * index) / bayCount;
-              return (
-                <g key={`multi-column-${index}`}>
-                {drawMemberSegments(legs, x, baseY, 'y', frontScale, `multi-leg-${index}`)}
-                <CornerCoupler x={x} y={topY} couplerPx={couplerPx} />
-                <BasePlate x={x} y={baseY + 14} />
-              </g>
-            );
-          })}
-        </g>
-      )}
+      {config.kind === 'MULTI_BAY' && (() => {
+        const bayMembers = splitMemberIntoBays(config.beam, bayCount);
+        let beamCursorX = leftX + couplerPx;
+        let columnCursorX = leftX + couplerPx / 2;
+        const beams = bayMembers.map((bayMember, index) => {
+          const startX = beamCursorX;
+          beamCursorX += getMemberLength(bayMember) * frontScale + couplerPx;
+          return drawMemberSegments(bayMember, startX, beamY, 'x', frontScale, `multi-beam-${index}`);
+        });
+        const columns = Array.from({ length: bayCount + 1 }).map((_, index) => {
+          const x = columnCursorX;
+          columnCursorX += (index < bayMembers.length ? getMemberLength(bayMembers[index]) * frontScale : 0) + couplerPx;
+          return (
+            <g key={`multi-column-${index}`}>
+              {drawMemberSegments(legs, x, baseY, 'y', frontScale, `multi-leg-${index}`)}
+              <CornerCoupler x={x} y={topY} couplerPx={couplerPx} />
+              <BasePlate x={x} y={baseY + 14} />
+            </g>
+          );
+        });
+        return <g>{beams}{columns}</g>;
+      })()}
 
       {config.kind === 'CUSTOM' && renderCustomStructure()}
 

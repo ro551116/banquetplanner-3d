@@ -107,6 +107,50 @@ export const getMemberLength = (member?: TrussMember): number => {
   return sanitizeMember(member).segments.reduce((sum, segment) => sum + segment, 0);
 };
 
+export const splitMemberIntoBays = (member: TrussMember | undefined, bayCount?: number): TrussMember[] => {
+  const segments = sanitizeMember(member).segments;
+  const count = clampBayCount(bayCount);
+  if (segments.length === 0) {
+    return Array.from({ length: count }, () => ({ segments: [] }));
+  }
+
+  const target = getMemberLength({ segments }) / count;
+  const groups: TrussMember[] = [];
+  let segmentIndex = 0;
+
+  for (let bayIndex = 0; bayIndex < count; bayIndex += 1) {
+    const remainingBays = count - bayIndex;
+    const group: TrussSegmentLength[] = [];
+    let groupLength = 0;
+
+    while (segmentIndex < segments.length) {
+      const remainingSegmentsAfterThis = segments.length - (segmentIndex + 1);
+      const mustLeaveForRemainingBays = remainingSegmentsAfterThis >= remainingBays - 1;
+      const nextSegment = segments[segmentIndex];
+
+      if (group.length > 0 && groupLength + nextSegment > target && mustLeaveForRemainingBays) {
+        break;
+      }
+
+      group.push(nextSegment);
+      groupLength += nextSegment;
+      segmentIndex += 1;
+
+      if (segments.length - segmentIndex <= remainingBays - 1) {
+        break;
+      }
+    }
+
+    groups.push({ segments: group });
+  }
+
+  if (segmentIndex < segments.length) {
+    groups[groups.length - 1].segments.push(...segments.slice(segmentIndex));
+  }
+
+  return groups;
+};
+
 // Fit segments to fill a target length with standard sections (simple greedy).
 export const fitSegments = (totalCm: number): TrussSegmentLength[] => {
   const target = Math.max(10, Math.floor((Number.isFinite(totalCm) ? totalCm : 10) / 10) * 10);
@@ -361,8 +405,9 @@ export const createDefaultTrussConfig = (
       case 'GOALPOST':
       case 'BACKDROP':
       case 'BOX':
-      case 'MULTI_BAY':
         return widthCm - 2 * COUPLER_LENGTH_CM;
+      case 'MULTI_BAY':
+        return widthCm - (2 + 1) * COUPLER_LENGTH_CM;
       case 'LSHAPE':
         return widthCm - COUPLER_LENGTH_CM;
       case 'TSHAPE':
@@ -438,8 +483,9 @@ export const getTrussDimensions = (config: TrussStructureConfig): TrussDimension
       case 'GOALPOST':
       case 'BACKDROP':
       case 'BOX':
-      case 'MULTI_BAY':
         return beamLength + 2 * COUPLER_LENGTH_CM;
+      case 'MULTI_BAY':
+        return beamLength + (getEffectiveBayCount(config) + 1) * COUPLER_LENGTH_CM;
       case 'LSHAPE':
         return beamLength + COUPLER_LENGTH_CM;
       case 'TSHAPE':
@@ -654,17 +700,33 @@ export const convertPresetToMembers = (config: TrussStructureConfig): TrussCusto
 
     case 'MULTI_BAY': {
       const bayCount = getEffectiveBayCount(config);
-      addMember('preset-multi-beam', '連續頂梁', 'HORIZONTAL', beamSegments, { xCm: COUPLER_LENGTH_CM, yCm: dims.heightCm }, 1);
+      const bayMembers = splitMemberIntoBays(config.beam, bayCount);
+      let cursorX = COUPLER_LENGTH_CM;
+
+      bayMembers.forEach((bayMember, index) => {
+        addMember(
+          `preset-multi-beam-${index}`,
+          `第${index + 1}跨頂梁`,
+          'HORIZONTAL',
+          bayMember.segments,
+          { xCm: cursorX, yCm: dims.heightCm },
+          1,
+        );
+        cursorX += getMemberLength(bayMember) + COUPLER_LENGTH_CM;
+      });
+
+      let columnX = COUPLER_LENGTH_CM / 2;
       Array.from({ length: bayCount + 1 }).forEach((_, index) => {
         addMember(
           `preset-multi-leg-${index}`,
           `第${index + 1}柱`,
           'VERTICAL',
           baseLegSegments,
-          { xCm: COUPLER_LENGTH_CM / 2 + (beamLength * index) / bayCount, yCm: 0 },
+          { xCm: columnX, yCm: 0 },
           undefined,
           true,
         );
+        columnX += (index < bayMembers.length ? getMemberLength(bayMembers[index]) : 0) + COUPLER_LENGTH_CM;
       });
       break;
     }
