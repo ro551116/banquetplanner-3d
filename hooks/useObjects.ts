@@ -6,7 +6,7 @@ import { useHistory } from './useHistory';
 import { cloneTrussConfig } from '../trussConfig';
 
 export function useObjects() {
-  const { state: objects, set: setObjects, undo, redo, canUndo, canRedo } = useHistory<BanquetObject[]>(INITIAL_OBJECTS);
+  const { state: objects, set: setObjects, undo, redo, reset: resetObjects, canUndo, canRedo } = useHistory<BanquetObject[]>(INITIAL_OBJECTS);
 
   const addObject = useCallback((type: ObjectType, pos?: { x: number; y: number; z: number }) => {
     const newObj = createObjectConfig(type, pos);
@@ -40,32 +40,29 @@ export function useObjects() {
   }, [setObjects]);
 
   const duplicateObjects = useCallback((ids: Set<string>) => {
-    const duplicated: BanquetObject[] = [];
-    setObjects(prev => {
-      const toDuplicate = prev.filter(o => ids.has(o.id));
-      const newObjs = toDuplicate.map(obj => ({
-        ...obj,
-        id: crypto.randomUUID(),
-        position: { ...obj.position, x: obj.position.x + 1, z: obj.position.z + 1 },
-        label: obj.label ? `${obj.label} (copy)` : '',
-        stairs: obj.stairs?.map(s => ({ ...s, id: crypto.randomUUID() })),
-        trussStructure: obj.trussStructure ? {
-          ...cloneTrussConfig(obj.trussStructure),
-          groupId: crypto.randomUUID(),
-          quantity: 1,
-        } : undefined,
-      }));
-      duplicated.push(...newObjs);
-      return [...prev, ...newObjs];
-    });
-    return duplicated;
-  }, [setObjects]);
+    const toDuplicate = objects.filter(o => ids.has(o.id));
+    if (toDuplicate.length === 0) return [];
+    const newObjs = toDuplicate.map(obj => ({
+      ...obj,
+      id: crypto.randomUUID(),
+      position: { ...obj.position, x: obj.position.x + 1, z: obj.position.z + 1 },
+      label: obj.label ? `${obj.label} (copy)` : '',
+      stairs: obj.stairs?.map(s => ({ ...s, id: crypto.randomUUID() })),
+      trussStructure: obj.trussStructure ? {
+        ...cloneTrussConfig(obj.trussStructure),
+        groupId: crypto.randomUUID(),
+        quantity: 1,
+      } : undefined,
+    }));
+    setObjects(prev => [...prev, ...newObjs]);
+    return newObjs;
+  }, [objects, setObjects]);
 
   // --- Stair Management ---
   const handleAddStair = useCallback((stageId: string) => {
+    const newStair: StairConfig = { id: crypto.randomUUID(), side: 'front', offset: 0, width: 1.5 };
     setObjects(prev => prev.map(obj => {
       if (obj.id !== stageId) return obj;
-      const newStair: StairConfig = { id: crypto.randomUUID(), side: 'front', offset: 0, width: 1.5 };
       return { ...obj, stairs: [...(obj.stairs || []), newStair] };
     }));
   }, [setObjects]);
@@ -109,6 +106,7 @@ export function useObjects() {
   return {
     objects,
     setObjects,
+    resetObjects,
     addObject,
     updateObject,
     deleteObject,
