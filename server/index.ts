@@ -492,6 +492,15 @@ app.get('/api/scenes', (_req, res) => {
   }
 });
 
+const SCENE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+app.use('/api/scenes/:id', (req, res, next) => {
+  if (!SCENE_ID_REGEX.test(req.params.id)) {
+    return sendBadRequest(res, 'invalid scene id');
+  }
+  next();
+});
+
 // Get one scene
 app.get('/api/scenes/:id', (req, res) => {
   const scene = readScene(req.params.id);
