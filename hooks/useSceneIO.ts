@@ -1,9 +1,18 @@
-import { useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { BanquetObject, HallConfig, DrawingPath } from '../types';
 import { scenesApi } from '../services/scenesApi';
 import { INITIAL_HALL, INITIAL_OBJECTS } from '../constants';
 
 const SAVE_DEBOUNCE = 2000; // ms
+
+export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
+
+interface SceneSnapshot {
+  sceneId: string;
+  hall: HallConfig;
+  objects: BanquetObject[];
+  drawings: DrawingPath[];
+}
 
 interface UseSceneIOParams {
   sceneId: string | null;
@@ -12,6 +21,7 @@ interface UseSceneIOParams {
   drawings: DrawingPath[];
   setHall: (hall: HallConfig) => void;
   setObjects: (objects: BanquetObject[]) => void;
+  resetObjects: (objects: BanquetObject[]) => void;
   setDrawings: (drawings: DrawingPath[]) => void;
   setSelectedIds: (ids: Set<string>) => void;
   setIsDrawMode: (v: boolean) => void;
@@ -20,54 +30,213 @@ interface UseSceneIOParams {
 
 export function useSceneIO({
   sceneId, hall, objects, drawings,
-  setHall, setObjects, setDrawings,
+  setHall, setObjects, resetObjects, setDrawings,
   setSelectedIds, setIsDrawMode, setMode
 }: UseSceneIOParams) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const loadedRef = useRef(false);
-  const saveCountRef = useRef(0);
+
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const requestGenRef = useRef(0);
+  const currentSceneIdRef = useRef<string | null>(sceneId);
+  currentSceneIdRef.current = sceneId;
+
+  const cleanBaselineRef = useRef<SceneSnapshot | null>(null);
+  const lastSeenTupleRef = useRef<{ hall: HallConfig; objects: BanquetObject[]; drawings: DrawingPath[] } | null>(null);
+  const latestSnapshotRef = useRef<SceneSnapshot | null>(null);
+  const latestRevisionRef = useRef(0);
+  const savedRevisionRef = useRef(0);
+
+  const inFlightPromiseRef = useRef<Promise<void> | null>(null);
+  const debounceTimerRef = useRef<number | undefined>(undefined);
+
+  const executeSave = useCallback(async (): Promise<void> => {
+    if (inFlightPromiseRef.current) {
+      await inFlightPromiseRef.current;
+    }
+
+    if (!latestSnapshotRef.current || latestRevisionRef.current <= savedRevisionRef.current) {
+      return;
+    }
+
+    const snapshot = latestSnapshotRef.current;
+    const revision = latestRevisionRef.current;
+    const targetSceneId = snapshot.sceneId;
+
+    setSaveStatus('saving');
+    setSaveError(null);
+
+    const savePromise = (async () => {
+      try {
+        await scenesApi.update(targetSceneId, {
+          data: {
+            hall: snapshot.hall,
+            objects: snapshot.objects,
+            drawings: snapshot.drawings,
+          },
+        });
+
+        if (currentSceneIdRef.current === targetSceneId) {
+          savedRevisionRef.current = Math.max(savedRevisionRef.current, revision);
+          if (latestRevisionRef.current === savedRevisionRef.current) {
+            setSaveStatus('saved');
+          } else {
+            setSaveStatus('dirty');
+            clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = window.setTimeout(() => {
+              executeSave().catch(() => {});
+            }, SAVE_DEBOUNCE);
+          }
+        }
+      } catch (err: unknown) {
+        if (currentSceneIdRef.current === targetSceneId) {
+          setSaveStatus('error');
+          setSaveError(err instanceof Error ? err.message : 'Failed to save scene');
+        }
+        throw err;
+      } finally {
+        if (inFlightPromiseRef.current === savePromise) {
+          inFlightPromiseRef.current = null;
+        }
+      }
+    })();
+
+    inFlightPromiseRef.current = savePromise;
+    await savePromise;
+  }, []);
+
+  const flushSave = useCallback(async (): Promise<void> => {
+    clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = undefined;
+
+    while (inFlightPromiseRef.current || latestRevisionRef.current > savedRevisionRef.current) {
+      if (inFlightPromiseRef.current) {
+        await inFlightPromiseRef.current;
+      }
+      if (latestRevisionRef.current > savedRevisionRef.current) {
+        await executeSave();
+      }
+    }
+  }, [executeSave]);
 
   // --- Load scene from API ---
-  const loadScene = useCallback(async (id: string) => {
+  const loadScene = useCallback(async (id: string): Promise<boolean> => {
+    if (currentSceneIdRef.current && (latestRevisionRef.current > savedRevisionRef.current || inFlightPromiseRef.current)) {
+      try {
+        await flushSave();
+      } catch (err) {
+        console.error('Failed to flush current scene before switching:', err);
+        return false;
+      }
+    }
+
+    clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = undefined;
+
+    setIsLoading(true);
+    setSaveError(null);
+    const myGen = ++requestGenRef.current;
+
     try {
       const scene = await scenesApi.get(id);
-      loadedRef.current = false; // prevent auto-save during load
+      if (myGen !== requestGenRef.current) {
+        return false;
+      }
+
       const data = scene.data ?? {};
-      setHall(data.hall ?? INITIAL_HALL);
-      setObjects(data.objects ?? INITIAL_OBJECTS);
-      setDrawings(data.drawings ?? []);
+      const targetHall = data.hall ?? INITIAL_HALL;
+      const targetObjects = data.objects ?? INITIAL_OBJECTS;
+      const targetDrawings = data.drawings ?? [];
+
+      setHall(targetHall);
+      resetObjects(targetObjects);
+      setDrawings(targetDrawings);
       setSelectedIds(new Set());
       setIsDrawMode(false);
       setMode('EDIT');
-      // Allow auto-save after a tick
-      setTimeout(() => { loadedRef.current = true; saveCountRef.current = 0; }, 100);
-    } catch (err) {
-      console.error('Load scene failed:', err);
-    }
-  }, [setHall, setObjects, setDrawings, setSelectedIds, setIsDrawMode, setMode]);
 
-  // --- Auto-save to API (debounced) ---
-  useEffect(() => {
-    if (!sceneId || !loadedRef.current) return;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      try {
-        await scenesApi.update(sceneId, {
-          data: { hall, objects, drawings },
-        });
-        saveCountRef.current++;
-      } catch (err) {
-        console.error('Auto-save failed:', err);
+      cleanBaselineRef.current = {
+        sceneId: id,
+        hall: targetHall,
+        objects: targetObjects,
+        drawings: targetDrawings,
+      };
+      lastSeenTupleRef.current = {
+        hall: targetHall,
+        objects: targetObjects,
+        drawings: targetDrawings,
+      };
+      latestSnapshotRef.current = {
+        sceneId: id,
+        hall: targetHall,
+        objects: targetObjects,
+        drawings: targetDrawings,
+      };
+      latestRevisionRef.current = 0;
+      savedRevisionRef.current = 0;
+      setSaveStatus('idle');
+      setIsLoading(false);
+      return true;
+    } catch (err: unknown) {
+      if (myGen === requestGenRef.current) {
+        setIsLoading(false);
+        setSaveError(err instanceof Error ? err.message : 'Failed to load scene');
       }
-    }, SAVE_DEBOUNCE);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [sceneId, hall, objects, drawings]);
+      return false;
+    }
+  }, [flushSave, setHall, resetObjects, setDrawings, setSelectedIds, setIsDrawMode, setMode]);
+
+  // --- Change detection for auto-save ---
+  useEffect(() => {
+    if (!sceneId || isLoading) return;
+
+    if (!lastSeenTupleRef.current || cleanBaselineRef.current?.sceneId !== sceneId) {
+      lastSeenTupleRef.current = { hall, objects, drawings };
+      return;
+    }
+
+    const changed =
+      hall !== lastSeenTupleRef.current.hall ||
+      objects !== lastSeenTupleRef.current.objects ||
+      drawings !== lastSeenTupleRef.current.drawings;
+
+    if (changed) {
+      lastSeenTupleRef.current = { hall, objects, drawings };
+      latestRevisionRef.current++;
+      latestSnapshotRef.current = { sceneId, hall, objects, drawings };
+      setSaveStatus('dirty');
+      setSaveError(null);
+
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = window.setTimeout(() => {
+        executeSave().catch(() => {});
+      }, SAVE_DEBOUNCE);
+    }
+  }, [sceneId, hall, objects, drawings, isLoading, executeSave]);
+
+  // --- Warn before unload if dirty or saving ---
+  useEffect(() => {
+    const isUnsaved = saveStatus === 'dirty' || saveStatus === 'saving';
+    if (!isUnsaved) return;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [saveStatus]);
 
   // --- Export JSON file ---
   const exportScene = useCallback(() => {
     const sceneData = {
-      metadata: { appName: "BanquetPlanner 3D", version: "1.0", timestamp: new Date().toISOString() },
+      metadata: { appName: 'BanquetPlanner 3D', version: '1.0', timestamp: new Date().toISOString() },
       hall, objects, drawings
     };
     const blob = new Blob([JSON.stringify(sceneData, null, 2)], { type: 'application/json' });
@@ -100,10 +269,8 @@ export function useSceneIO({
         setSelectedIds(new Set());
         setIsDrawMode(false);
         setMode('EDIT');
-        // Mark as loaded so auto-save kicks in
-        loadedRef.current = true;
       } catch (err) {
-        console.error("Import failed:", err);
+        console.error('Import failed:', err);
       } finally {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
@@ -125,7 +292,7 @@ export function useSceneIO({
         link.click();
         document.body.removeChild(link);
       } catch (err) {
-        console.error("Screenshot failed:", err);
+        console.error('Screenshot failed:', err);
       }
     }
   }, []);
@@ -133,6 +300,10 @@ export function useSceneIO({
   return {
     fileInputRef,
     loadScene,
+    flushSave,
+    saveStatus,
+    saveError,
+    isLoading,
     exportScene,
     handleImportClick,
     handleFileChange,

@@ -36,11 +36,13 @@ export default function App() {
   const [showTrussBuilder, setShowTrussBuilder] = useState(false);
   const [editingTrussId, setEditingTrussId] = useState<string | null>(null);
   const [showTrussSheet, setShowTrussSheet] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const objectRefs = useRef<Record<string, THREE.Group | null>>({});
 
   const {
-    objects, setObjects, addObject, updateObject, deleteObject,
+    objects, setObjects, resetObjects, addObject, updateObject, deleteObject,
     deleteByIds, handleBatchUpdate, handleBulkPropertyUpdate,
     handleBatchAddObjects, duplicateObjects, handleAddStair, handleRemoveStair,
     handleUpdateStair, undo, redo, canUndo, canRedo
@@ -50,7 +52,7 @@ export default function App() {
 
   const sceneIO = useSceneIO({
     sceneId, hall, objects, drawings: drawing.drawings,
-    setHall, setObjects, setDrawings: drawing.setDrawings,
+    setHall, setObjects, resetObjects, setDrawings: drawing.setDrawings,
     setSelectedIds, setIsDrawMode: drawing.setIsDrawMode, setMode
   });
 
@@ -62,28 +64,46 @@ export default function App() {
   });
 
   const handleLoadScene = useCallback(async (id: string) => {
-    setView('scenes');
-    setSceneId(id);
-    await sceneIO.loadScene(id);
+    setLoadError(null);
+    const ok = await sceneIO.loadScene(id);
+    if (ok) {
+      setView('scenes');
+      setSceneId(id);
+    } else {
+      setLoadError('無法載入該場景，請稍後再試。');
+    }
   }, [sceneIO.loadScene]);
 
   const handleNewScene = useCallback(async (id: string) => {
-    setView('scenes');
-    setSceneId(id);
-    await sceneIO.loadScene(id);
+    setLoadError(null);
+    const ok = await sceneIO.loadScene(id);
+    if (ok) {
+      setView('scenes');
+      setSceneId(id);
+    } else {
+      setLoadError('無法載入新建立的場景，請稍後再試。');
+    }
   }, [sceneIO.loadScene]);
 
-  const handleBackToList = useCallback(() => {
-    setView('scenes');
-    setSceneId(null);
-  }, []);
+  const handleBackToList = useCallback(async () => {
+    try {
+      setIsExiting(true);
+      await sceneIO.flushSave();
+      setSceneId(null);
+      setView('scenes');
+    } catch (err: unknown) {
+      console.error('Failed to flush save before exiting:', err);
+    } finally {
+      setIsExiting(false);
+    }
+  }, [sceneIO.flushSave]);
 
-  const handleAddObjectFromSidebar = (type: ObjectType, pos?: { x: number; y: number; z: number }) => {
+  const handleAddObjectFromSidebar = useCallback((type: ObjectType, pos?: { x: number; y: number; z: number }) => {
     const newObj = addObject(type, pos);
     setSelectedIds(new Set([newObj.id]));
     drawing.setIsDrawMode(false);
     return newObj;
-  };
+  }, [addObject, setSelectedIds, drawing.setIsDrawMode]);
 
   const handleBatchAddFromModal = (newObjects: import('./types').BanquetObject[]) => {
     const newIds = handleBatchAddObjects(newObjects);
@@ -164,11 +184,27 @@ export default function App() {
 
   if (!sceneId && view === 'scenes') {
     return (
-      <SceneManager
-        onLoad={handleLoadScene}
-        onNew={handleNewScene}
-        onBackHome={() => setView('home')}
-      />
+      <>
+        {sceneIO.isLoading && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center backdrop-blur-xs">
+            <div className="bg-white px-6 py-4 rounded-xl shadow-xl flex items-center gap-3 text-slate-800 font-medium">
+              <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <span>載入中…</span>
+            </div>
+          </div>
+        )}
+        {loadError && (
+          <div role="alert" className="fixed top-4 right-4 z-50 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3">
+            <span>{loadError}</span>
+            <button onClick={() => setLoadError(null)} className="text-red-700 hover:text-red-900 font-bold cursor-pointer">✕</button>
+          </div>
+        )}
+        <SceneManager
+          onLoad={handleLoadScene}
+          onNew={handleNewScene}
+          onBackHome={() => setView('home')}
+        />
+      </>
     );
   }
 
@@ -184,6 +220,15 @@ export default function App() {
   // --- Main Editor ---
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-100 text-slate-900 font-sans overflow-hidden">
+      {/* Loading / Exiting overlay */}
+      {(sceneIO.isLoading || isExiting) && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center backdrop-blur-xs">
+          <div className="bg-white px-6 py-4 rounded-xl shadow-xl flex items-center gap-3 text-slate-800 font-medium">
+            <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <span>{isExiting ? '儲存中…' : '載入中…'}</span>
+          </div>
+        </div>
+      )}
 
       <input
         type="file"
@@ -239,6 +284,42 @@ export default function App() {
         hasTrussStructures={objects.some(obj => obj.type === ObjectType.TRUSS_STRUCTURE)}
         onOpenTrussSheets={() => setShowTrussSheet(true)}
       />
+      {/* Save Status Indicator */}
+      {sceneId && sceneIO.saveStatus !== 'idle' && (
+        <div
+          aria-live="polite"
+          className={`px-4 py-1 text-xs flex items-center justify-between border-b z-20 ${
+            sceneIO.saveStatus === 'error'
+              ? 'bg-red-50 text-red-700 border-red-200'
+              : sceneIO.saveStatus === 'saving'
+              ? 'bg-blue-50 text-blue-700 border-blue-200'
+              : sceneIO.saveStatus === 'dirty'
+              ? 'bg-amber-50 text-amber-700 border-amber-200'
+              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <span className="font-medium">
+              {sceneIO.saveStatus === 'dirty' && '尚未儲存'}
+              {sceneIO.saveStatus === 'saving' && '儲存中…'}
+              {sceneIO.saveStatus === 'saved' && '已儲存'}
+              {sceneIO.saveStatus === 'error' && '儲存失敗'}
+            </span>
+            {sceneIO.saveStatus === 'error' && sceneIO.saveError && (
+              <span className="text-red-500 text-[11px]">({sceneIO.saveError})</span>
+            )}
+          </div>
+          {sceneIO.saveStatus === 'error' && (
+            <button
+              type="button"
+              onClick={() => sceneIO.flushSave().catch(() => {})}
+              className="text-xs px-2 py-0.5 bg-red-100 hover:bg-red-200 text-red-800 rounded font-semibold transition-colors cursor-pointer"
+            >
+              重試儲存
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Main Area */}
       <div className="flex flex-1 min-h-0">
