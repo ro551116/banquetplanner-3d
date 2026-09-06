@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, type ThreeEvent } from '@react-three/fiber';
 import {
   OrbitControls, Grid, PerspectiveCamera,
   Line, GizmoHelper, GizmoViewport
@@ -87,14 +87,14 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
     finishPath();
   };
 
-  const handleObjectDrop = (e: any) => {
+  const handleObjectDrop = useCallback((e: ThreeEvent<PointerEvent>) => {
     if (draggedType) {
       e.stopPropagation();
       const y = getElevation(e.point.x, e.point.z, objects);
       addObject(draggedType, { x: e.point.x, y, z: e.point.z });
       setDraggedType(null);
     }
-  };
+  }, [draggedType, objects, addObject, setDraggedType]);
 
   const handlePointerMissed = (e: MouseEvent) => {
     if (mode === 'EDIT' && !isDrawMode && !isDragging) {
@@ -102,7 +102,7 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
     }
   };
 
-  const handleObjectPointerDown = useCallback((id: string, e: any) => {
+  const handleObjectPointerDown = useCallback((id: string, e: ThreeEvent<PointerEvent>) => {
     if (mode !== 'EDIT' || isDrawMode) return;
     e.stopPropagation();
 
@@ -288,11 +288,11 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
       {objects.map((obj) => (
         <ObjectWrapper
           key={obj.id}
-          ref={(el) => { objectRefs.current[obj.id] = el; }}
           obj={obj}
           isSelected={selectedIds.has(obj.id)}
           isEditMode={mode === 'EDIT'}
-          onPointerDown={(e) => handleObjectPointerDown(obj.id, e)}
+          objectRefs={objectRefs}
+          onPointerDown={handleObjectPointerDown}
           onPointerUp={handleObjectDrop}
         />
       ))}

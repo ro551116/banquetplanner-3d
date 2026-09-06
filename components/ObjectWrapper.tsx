@@ -1,4 +1,5 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
+import type { ThreeEvent } from '@react-three/fiber';
 import { TransformControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { BanquetObject, ObjectType } from '../types';
@@ -25,15 +26,28 @@ interface ObjectWrapperProps {
   obj: BanquetObject;
   isSelected: boolean;
   isEditMode: boolean;
-  onPointerDown: (e: any) => void;
-  onPointerUp?: (e: any) => void;
+  objectRefs: React.MutableRefObject<Record<string, THREE.Group | null>>;
+  onPointerDown: (id: string, e: ThreeEvent<PointerEvent>) => void;
+  onPointerUp?: (e: ThreeEvent<PointerEvent>) => void;
 }
 
-export const ObjectWrapper = React.memo(React.forwardRef<THREE.Group, ObjectWrapperProps>(
-  ({ obj, isSelected, isEditMode, onPointerDown, onPointerUp }, ref) => {
+export const ObjectWrapper = React.memo<ObjectWrapperProps>(
+  ({ obj, isSelected, isEditMode, objectRefs, onPointerDown, onPointerUp }) => {
+    const handleRef = useCallback((el: THREE.Group | null) => {
+      if (el) {
+        objectRefs.current[obj.id] = el;
+      } else {
+        delete objectRefs.current[obj.id];
+      }
+    }, [objectRefs, obj.id]);
+
+    const handlePointerDown = useCallback((e: ThreeEvent<PointerEvent>) => {
+      onPointerDown(obj.id, e);
+    }, [obj.id, onPointerDown]);
+
     return (
       <group
-        ref={ref}
+        ref={handleRef}
         position={[obj.position.x, obj.position.y, obj.position.z]}
         rotation={[
           // Lights & speakers: rotation.x is head tilt only (passed via tilt prop), not whole-object rotation
@@ -41,7 +55,7 @@ export const ObjectWrapper = React.memo(React.forwardRef<THREE.Group, ObjectWrap
           obj.rotation.y,
           obj.rotation.z
         ]}
-        onPointerDown={onPointerDown}
+        onPointerDown={handlePointerDown}
         onPointerUp={onPointerUp}
       >
         <BanquetObjectModel
@@ -67,7 +81,7 @@ export const ObjectWrapper = React.memo(React.forwardRef<THREE.Group, ObjectWrap
       </group>
     );
   }
-));
+);
 
 // --- Multi Select Controls ---
 interface MultiSelectControlsProps {
