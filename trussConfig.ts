@@ -88,11 +88,30 @@ export const getEffectiveBayCount = (config: TrussStructureConfig): number => (
   clampBayCount(config.bayCount)
 );
 
+export const getTrussCouplerAllowances = (
+  config: Pick<TrussStructureConfig, 'kind' | 'bayCount'>,
+): { widthCm: number; heightCm: number } => {
+  switch (config.kind) {
+    case 'GOALPOST':
+    case 'BACKDROP':
+      return { widthCm: 2 * COUPLER_LENGTH_CM, heightCm: COUPLER_LENGTH_CM };
+    case 'BOX':
+      return { widthCm: 2 * COUPLER_LENGTH_CM, heightCm: 2 * COUPLER_LENGTH_CM };
+    case 'LSHAPE':
+    case 'TSHAPE':
+      return { widthCm: COUPLER_LENGTH_CM, heightCm: COUPLER_LENGTH_CM };
+    case 'MULTI_BAY':
+      return { widthCm: (clampBayCount(config.bayCount) + 1) * COUPLER_LENGTH_CM, heightCm: COUPLER_LENGTH_CM };
+    default:
+      return { widthCm: 0, heightCm: 0 };
+  }
+};
+
 export const getEffectiveBeamAttachCm = (config: TrussStructureConfig): number => {
   const legHeight = getMemberLength(config.legs);
   const attach = config.beamAttachCm ?? legHeight;
   if (!Number.isFinite(attach)) return legHeight;
-  return Math.max(0, Math.round(attach));
+  return Math.min(legHeight, Math.max(0, Math.round(attach)));
 };
 
 export const sanitizeMember = (member?: TrussMember): TrussMember => ({
@@ -114,39 +133,34 @@ export const splitMemberIntoBays = (member: TrussMember | undefined, bayCount?: 
     return Array.from({ length: count }, () => ({ segments: [] }));
   }
 
-  const target = getMemberLength({ segments }) / count;
+  let remainingLength = segments.reduce((sum, segment) => sum + segment, 0);
   const groups: TrussMember[] = [];
   let segmentIndex = 0;
 
   for (let bayIndex = 0; bayIndex < count; bayIndex += 1) {
     const remainingBays = count - bayIndex;
+    const target = remainingLength / remainingBays;
+    // Keep sections intact and reserve one for each remaining bay when possible.
+    const endIndex = Math.max(segmentIndex + 1, segments.length - remainingBays + 1);
     const group: TrussSegmentLength[] = [];
     let groupLength = 0;
 
-    while (segmentIndex < segments.length) {
-      const remainingSegmentsAfterThis = segments.length - (segmentIndex + 1);
-      const mustLeaveForRemainingBays = remainingSegmentsAfterThis >= remainingBays - 1;
+    while (segmentIndex < segments.length && segmentIndex < endIndex) {
       const nextSegment = segments[segmentIndex];
 
-      if (group.length > 0 && groupLength + nextSegment > target && mustLeaveForRemainingBays) {
+      if (group.length > 0 && Math.abs(groupLength + nextSegment - target) >= Math.abs(groupLength - target)) {
         break;
       }
 
       group.push(nextSegment);
       groupLength += nextSegment;
       segmentIndex += 1;
-
-      if (segments.length - segmentIndex <= remainingBays - 1) {
-        break;
-      }
     }
 
     groups.push({ segments: group });
+    remainingLength -= groupLength;
   }
 
-  if (segmentIndex < segments.length) {
-    groups[groups.length - 1].segments.push(...segments.slice(segmentIndex));
-  }
 
   return groups;
 };
@@ -163,6 +177,19 @@ export const fitSegments = (totalCm: number): TrussSegmentLength[] => {
     }
   }
   return result.length > 0 ? result : [10];
+};
+
+// Fit the total with enough physical sections to supply every requested bay.
+export const fitSegmentsForBays = (totalCm: number, bayCount: number): TrussSegmentLength[] => {
+  const count = clampBayCount(bayCount);
+  const units = Math.max(count, Math.floor((Number.isFinite(totalCm) ? totalCm : 0) / 10));
+  const unitsPerBay = Math.floor(units / count);
+  const remainder = units % count;
+  const segments: TrussSegmentLength[] = [];
+  for (let index = 0; index < count; index += 1) {
+    segments.push(...fitSegments((unitsPerBay + (index < remainder ? 1 : 0)) * 10));
+  }
+  return segments;
 };
 
 const getMemberSegmentsOrFallback = (
@@ -270,7 +297,7 @@ export const getCustomBounds = (members: TrussCustomMember[] = []): TrussCustomB
   const maxYCm = Math.max(...points.map(point => point.yCm));
   const minZCm = Math.min(...points.map(point => point.zCm));
   const maxZCm = Math.max(...points.map(point => point.zCm));
-  const hasDepth = members.some(member => member.orientation === 'DEPTH');
+  const hasDepth = maxZCm > minZCm || members.some(member => member.orientation === 'DEPTH');
 
   return {
     minXCm,
@@ -385,40 +412,14 @@ export const createDefaultTrussConfig = (
     };
   }
 
-  const legTargetCm = Math.max(10, (() => {
-    switch (kind) {
-      case 'GOALPOST':
-      case 'BACKDROP':
-      case 'LSHAPE':
-      case 'TSHAPE':
-      case 'MULTI_BAY':
-        return heightCm - COUPLER_LENGTH_CM;
-      case 'BOX':
-        return heightCm - 2 * COUPLER_LENGTH_CM;
-      case 'TOWER':
-      default:
-        return heightCm;
-    }
-  })());
-  const beamTargetCm = Math.max(10, (() => {
-    switch (kind) {
-      case 'GOALPOST':
-      case 'BACKDROP':
-      case 'BOX':
-        return widthCm - 2 * COUPLER_LENGTH_CM;
-      case 'MULTI_BAY':
-        return widthCm - (2 + 1) * COUPLER_LENGTH_CM;
-      case 'LSHAPE':
-        return widthCm - COUPLER_LENGTH_CM;
-      case 'TSHAPE':
-        return Math.round((widthCm - COUPLER_LENGTH_CM) / 2);
-      default:
-        return widthCm;
-    }
-  })());
+  const allowances = getTrussCouplerAllowances({ kind });
+  const legTargetCm = Math.max(10, heightCm - allowances.heightCm);
+  const beamTargetCm = Math.max(10, (widthCm - allowances.widthCm) / (kind === 'TSHAPE' ? 2 : 1));
   const legs = { segments: fitSegments(legTargetCm) };
   const fittedLegHeightCm = getMemberLength(legs);
-  const beam = kind === 'TOWER' ? undefined : { segments: fitSegments(beamTargetCm) };
+  const beam = kind === 'TOWER' ? undefined : {
+    segments: kind === 'MULTI_BAY' ? fitSegmentsForBays(beamTargetCm, 2) : fitSegments(beamTargetCm),
+  };
   const beamRight = kind === 'TSHAPE' ? { segments: fitSegments(beamTargetCm) } : undefined;
   const bottomBeam = kind === 'BOX' ? { segments: fitSegments(beamTargetCm) } : undefined;
   const depthMember = kind === 'BACKDROP' ? { segments: fitSegments(depthCm) } : undefined;
@@ -450,21 +451,9 @@ export const getTrussDimensions = (config: TrussStructureConfig): TrussDimension
   const beamLength = getMemberLength(config.beam);
   const beamRightLength = getMemberLength(config.beamRight);
   const depthLength = getMemberLength(config.depthMember);
-  const heightOffset = (() => {
-    switch (config.kind) {
-      case 'GOALPOST':
-      case 'BACKDROP':
-      case 'LSHAPE':
-      case 'TSHAPE':
-      case 'MULTI_BAY':
-        return COUPLER_LENGTH_CM;
-      case 'BOX':
-        return 2 * COUPLER_LENGTH_CM;
-      case 'TOWER':
-      default:
-        return 0;
-    }
-  })();
+  const allowances = getTrussCouplerAllowances(config);
+  const isCantilever = config.kind === 'LSHAPE' || config.kind === 'TSHAPE';
+  const heightOffset = isCantilever ? 0 : allowances.heightCm;
   const leftHeight = getMemberLength(config.legs) + heightOffset;
   const rightHeight = (
     config.kind === 'GOALPOST' ||
@@ -483,13 +472,13 @@ export const getTrussDimensions = (config: TrussStructureConfig): TrussDimension
       case 'GOALPOST':
       case 'BACKDROP':
       case 'BOX':
-        return beamLength + 2 * COUPLER_LENGTH_CM;
+        return beamLength + allowances.widthCm;
       case 'MULTI_BAY':
-        return beamLength + (getEffectiveBayCount(config) + 1) * COUPLER_LENGTH_CM;
+        return beamLength + allowances.widthCm;
       case 'LSHAPE':
-        return beamLength + COUPLER_LENGTH_CM;
+        return beamLength + allowances.widthCm;
       case 'TSHAPE':
-        return beamLength + beamRightLength + COUPLER_LENGTH_CM;
+        return beamLength + beamRightLength + allowances.widthCm;
       default:
         return beamLength;
     }
@@ -534,7 +523,7 @@ export const formatTrussTitle = (config: TrussStructureConfig, quantityOverride?
     : config.kind === 'BACKDROP';
   const dimensionText = config.kind === 'TOWER'
     ? `外徑H${dims.heightCm}`
-    : `外徑W${dims.widthCm}×H${dims.heightCm}${hasDepth ? `×D${dims.depthCm || 0}` : ''}`;
+    : `${config.kind === 'CUSTOM' ? '座標範圍' : '外徑'}W${dims.widthCm}×H${dims.heightCm}${hasDepth ? `×D${dims.depthCm || 0}` : ''}`;
   const suffix = getKindSuffix(config.kind, quantity, config.bayCount);
 
   return `${baseTitle} ${dimensionText} ${suffix}`;
@@ -648,6 +637,10 @@ export const convertPresetToMembers = (config: TrussStructureConfig): TrussCusto
   const rightLeg = getEffectiveRightLeg(config);
   const baseLegSegments = getMemberSegmentsOrFallback(config.legs, fitSegments(Math.max(10, (dims.heightCm || 10) - 2 * COUPLER_LENGTH_CM)));
   const rightLegSegments = getMemberSegmentsOrFallback(rightLeg, baseLegSegments);
+  const frameBeamY = Math.min(
+    getMemberLength({ segments: baseLegSegments }),
+    getMemberLength({ segments: rightLegSegments }),
+  );
   const beamSegments = getMemberSegmentsOrFallback(config.beam, fitSegments(Math.max(10, dims.widthCm || 10)));
   const members: TrussCustomMember[] = [];
   const addMember = (
@@ -701,7 +694,7 @@ export const convertPresetToMembers = (config: TrussStructureConfig): TrussCusto
     case 'MULTI_BAY': {
       const bayCount = getEffectiveBayCount(config);
       const bayMembers = splitMemberIntoBays(config.beam, bayCount);
-      let cursorX = COUPLER_LENGTH_CM;
+      let cursorX = 0;
 
       bayMembers.forEach((bayMember, index) => {
         addMember(
@@ -709,13 +702,13 @@ export const convertPresetToMembers = (config: TrussStructureConfig): TrussCusto
           `第${index + 1}跨頂梁`,
           'HORIZONTAL',
           bayMember.segments,
-          { xCm: cursorX, yCm: dims.heightCm },
+          { xCm: cursorX, yCm: getMemberLength(config.legs) },
           1,
         );
-        cursorX += getMemberLength(bayMember) + COUPLER_LENGTH_CM;
+        cursorX += getMemberLength(bayMember);
       });
 
-      let columnX = COUPLER_LENGTH_CM / 2;
+      let columnX = 0;
       Array.from({ length: bayCount + 1 }).forEach((_, index) => {
         addMember(
           `preset-multi-leg-${index}`,
@@ -726,7 +719,7 @@ export const convertPresetToMembers = (config: TrussStructureConfig): TrussCusto
           undefined,
           true,
         );
-        columnX += (index < bayMembers.length ? getMemberLength(bayMembers[index]) : 0) + COUPLER_LENGTH_CM;
+        columnX += index < bayMembers.length ? getMemberLength(bayMembers[index]) : 0;
       });
       break;
     }
@@ -734,7 +727,7 @@ export const convertPresetToMembers = (config: TrussStructureConfig): TrussCusto
     case 'BOX':
       addMember('preset-box-left-leg', '左柱', 'VERTICAL', baseLegSegments, { xCm: 0, yCm: 0 }, undefined, true);
       addMember('preset-box-right-leg', '右柱', 'VERTICAL', rightLegSegments, { xCm: beamLength, yCm: 0 }, undefined, true);
-      addMember('preset-box-top-beam', '頂梁', 'HORIZONTAL', beamSegments, { xCm: 0, yCm: dims.heightCm }, 1);
+      addMember('preset-box-top-beam', '頂梁', 'HORIZONTAL', beamSegments, { xCm: 0, yCm: frameBeamY }, 1);
       addMember(
         'preset-box-bottom-beam',
         '底梁',
@@ -748,20 +741,20 @@ export const convertPresetToMembers = (config: TrussStructureConfig): TrussCusto
     case 'BACKDROP':
       addMember('preset-backdrop-left-leg', '左柱', 'VERTICAL', baseLegSegments, { xCm: 0, yCm: 0 }, undefined, true);
       addMember('preset-backdrop-right-leg', '右柱', 'VERTICAL', rightLegSegments, { xCm: beamLength, yCm: 0 }, undefined, true);
-      addMember('preset-backdrop-top-beam', '頂梁', 'HORIZONTAL', beamSegments, { xCm: 0, yCm: dims.heightCm }, 1);
+      addMember('preset-backdrop-top-beam', '頂梁', 'HORIZONTAL', beamSegments, { xCm: 0, yCm: frameBeamY }, 1);
       addMember(
         'preset-backdrop-left-depth',
         '左深度撐',
         'DEPTH',
         getMemberSegmentsOrFallback(config.depthMember, fitSegments(dims.depthCm || 10)),
-        { xCm: 0, yCm: dims.heightCm, zCm: 0 },
+        { xCm: 0, yCm: frameBeamY, zCm: 0 },
       );
       addMember(
         'preset-backdrop-right-depth',
         '右深度撐',
         'DEPTH',
         getMemberSegmentsOrFallback(config.depthMember, fitSegments(dims.depthCm || 10)),
-        { xCm: beamLength, yCm: dims.heightCm, zCm: 0 },
+        { xCm: beamLength, yCm: frameBeamY, zCm: 0 },
       );
       break;
 
@@ -769,7 +762,7 @@ export const convertPresetToMembers = (config: TrussStructureConfig): TrussCusto
     default:
       addMember('preset-goalpost-left-leg', '左柱', 'VERTICAL', baseLegSegments, { xCm: 0, yCm: 0 }, undefined, true);
       addMember('preset-goalpost-right-leg', '右柱', 'VERTICAL', rightLegSegments, { xCm: beamLength, yCm: 0 }, undefined, true);
-      addMember('preset-goalpost-top-beam', '頂梁', 'HORIZONTAL', beamSegments, { xCm: 0, yCm: dims.heightCm }, 1);
+      addMember('preset-goalpost-top-beam', '頂梁', 'HORIZONTAL', beamSegments, { xCm: 0, yCm: frameBeamY }, 1);
       break;
   }
 

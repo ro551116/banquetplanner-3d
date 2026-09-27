@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Copy, Plus, Trash2, X } from 'lucide-react';
 import {
   TrussCustomMember,
@@ -9,14 +9,18 @@ import {
   TrussStructureKind,
 } from '../types';
 import {
+  calculateTrussBom,
   cloneTrussConfig,
   convertPresetToMembers,
   createDefaultTrussConfig,
   fitSegments,
+  fitSegmentsForBays,
   formatTrussTitle,
   getCustomMemberEndpoint,
   getMemberLength,
+  getTrussCouplerAllowances,
   getTrussDimensions,
+  splitMemberIntoBays,
   COUPLER_LENGTH_CM,
   TRUSS_SEGMENT_COLORS,
   TRUSS_SEGMENT_LENGTHS,
@@ -26,8 +30,9 @@ import { TrussDiagram } from './TrussDiagram';
 interface TrussBuilderModalProps {
   initialConfig?: TrussStructureConfig;
   onClose: () => void;
-  onSubmit: (config: TrussStructureConfig) => void;
+  onSubmit: (config: TrussStructureConfig) => void | Promise<void>;
   submitLabel?: string;
+  lockQuantity?: boolean;
 }
 
 const KIND_OPTIONS: Array<{ kind: TrussStructureKind; title: string; description: string }> = [
@@ -157,6 +162,7 @@ const SegmentChip = ({
       ))}
     </select>
     <button
+      type="button"
       onClick={onRemove}
       className="h-7 w-6 flex items-center justify-center text-slate-300 hover:bg-red-50 hover:text-red-500"
       title="移除此段"
@@ -172,23 +178,25 @@ const MemberEditor = ({
   onChange,
 }: {
   label: string;
-  member: TrussMember;
+  member?: TrussMember;
   onChange: (member: TrussMember) => void;
 }) => {
+  const segments = member?.segments ?? [];
+
   const updateSegment = (index: number, next: TrussSegmentLength) => {
-    onChange({ segments: member.segments.map((segment, i) => i === index ? next : segment) });
+    onChange({ segments: segments.map((segment, i) => (i === index ? next : segment)) });
   };
 
   const removeSegment = (index: number) => {
-    const next = member.segments.filter((_, i) => i !== index);
+    const next = segments.filter((_, i) => i !== index);
     onChange({ segments: next.length ? next : [10] });
   };
 
   const addSegment = (length: TrussSegmentLength) => {
-    onChange({ segments: [...member.segments, length] });
+    onChange({ segments: [...segments, length] });
   };
 
-  const total = member.segments.reduce((sum, segment) => sum + segment, 0);
+  const total = segments.reduce((sum, segment) => sum + segment, 0);
 
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
@@ -197,9 +205,9 @@ const MemberEditor = ({
         <span className="text-[11px] font-semibold text-slate-500">實際 {total}cm</span>
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {member.segments.map((segment, index) => (
+        {segments.map((segment, index) => (
           <SegmentChip
-            key={`${segment}-${index}`}
+            key={index}
             length={segment}
             onChange={(next) => updateSegment(index, next)}
             onRemove={() => removeSegment(index)}
@@ -210,6 +218,7 @@ const MemberEditor = ({
         {TRUSS_SEGMENT_LENGTHS.map(length => (
           <button
             key={length}
+            type="button"
             onClick={() => addSegment(length)}
             className="h-6 px-2 rounded border border-slate-200 bg-white text-[10px] font-bold text-slate-600 hover:border-blue-300 hover:text-blue-600 flex items-center gap-1"
           >
@@ -227,26 +236,67 @@ const NumberField = ({
   value,
   onChange,
   min = 10,
+  step = 10,
 }: {
   label: string;
   value: number;
   onChange: (next: number) => void;
   min?: number;
-}) => (
-  <div className="space-y-1">
-    <label className="text-[10px] font-bold text-slate-500 uppercase">{label}</label>
-    <input
-      type="number"
-      min={min}
-      step={10}
-      value={value}
-      onChange={(e) => onChange(Number(e.target.value))}
-      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-    />
-  </div>
-);
+  step?: number;
+}) => {
+  const inputId = React.useId();
+  const [draft, setDraft] = useState(String(value));
+  const [isFocused, setIsFocused] = useState(false);
 
-const createCustomMemberId = () => `custom-${crypto.randomUUID()}`;
+  useEffect(() => {
+    if (!isFocused) {
+      setDraft(String(value));
+    }
+  }, [value, isFocused]);
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (trimmed === '' || !Number.isFinite(Number(trimmed))) {
+      setDraft(String(value));
+      return;
+    }
+    const num = Number(trimmed);
+    onChange(num);
+  };
+
+  const handleBlur = () => {
+    setIsFocused(false);
+    commit();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.currentTarget.blur();
+    }
+  };
+
+  return (
+    <div className="space-y-1">
+      <label htmlFor={inputId} className="text-[10px] font-bold text-slate-500 uppercase">{label}</label>
+      <input
+        id={inputId}
+        type="number"
+        min={min}
+        step={step}
+        value={isFocused ? draft : value}
+        onFocus={() => {
+          setIsFocused(true);
+          setDraft(String(value));
+        }}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+      />
+    </div>
+  );
+};
 
 const getCustomMemberLabel = (member: TrussCustomMember, index: number) => (
   member.label?.trim() || `桿件 ${index + 1}`
@@ -258,11 +308,15 @@ const createCustomMember = (
   direction: 1 | -1 = 1,
   label = '新桿件',
 ): TrussCustomMember => ({
-  id: createCustomMemberId(),
+  id: `custom-${crypto.randomUUID()}`,
   label,
   orientation,
   segments: fitSegments(100),
-  origin: { ...origin },
+  origin: {
+    xCm: origin.xCm,
+    yCm: origin.yCm,
+    zCm: origin.zCm ?? 0,
+  },
   direction: orientation === 'HORIZONTAL' ? direction : undefined,
   basePlate: orientation === 'VERTICAL' && origin.yCm === 0 ? true : undefined,
 });
@@ -272,57 +326,115 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
   onClose,
   onSubmit,
   submitLabel,
+  lockQuantity = false,
 }) => {
   const initial = useMemo(() => cloneTrussConfig(initialConfig || createDefaultTrussConfig()), [initialConfig]);
   const initialDims = useMemo(() => getTrussDimensions(initial), [initial]);
-  const initialBeamLength = getMemberLength(initial.beam) || initialDims.widthCm || 550;
+  const initialAllowances = getTrussCouplerAllowances(initial);
+
+  const initialBeamLength = getMemberLength(initial.beam) || Math.max(10, (initialDims.widthCm || 550) - initialAllowances.widthCm);
   const initialBeamRightLength = getMemberLength(initial.beamRight) || initialBeamLength;
-  const initialBottomLength = getMemberLength(initial.bottomBeam) || initialBeamLength;
-  const initialLegHeight = getMemberLength(initial.legs) || initialDims.heightCm || 375;
+  const initialLegHeight = getMemberLength(initial.legs) || Math.max(10, (initialDims.heightCm || 375) - initialAllowances.heightCm);
 
   const [kind, setKind] = useState<TrussStructureKind>(initial.kind);
   const [title, setTitle] = useState(initial.title || 'Truss 結構');
-  const [quantity, setQuantity] = useState(initial.quantity || 1);
-  const [targetWidth, setTargetWidth] = useState(initial.kind === 'TOWER' ? 350 : initialDims.widthCm || 550);
-  const [targetHeight, setTargetHeight] = useState(initialDims.heightCm || initialLegHeight);
+  const [quantity, setQuantity] = useState(lockQuantity ? 1 : (initial.quantity || 1));
+  const [targetWidth, setTargetWidth] = useState(initial.kind === 'TOWER' ? 350 : (initialDims.widthCm || 550));
+  const [targetHeight, setTargetHeight] = useState(initialDims.heightCm || (initialLegHeight + initialAllowances.heightCm));
   const [targetDepth, setTargetDepth] = useState(initialDims.depthCm || 125);
   const [targetBeamLeft, setTargetBeamLeft] = useState(initialBeamLength);
   const [targetBeamRight, setTargetBeamRight] = useState(initialBeamRightLength);
-  const [targetBottomWidth, setTargetBottomWidth] = useState(initialBottomLength);
+
+  // BOX bottom beam: targetBottomWidth is outer target width
+  const initialBottomWidth = initial.bottomBeam
+    ? getMemberLength(initial.bottomBeam) + 2 * COUPLER_LENGTH_CM
+    : (initialDims.widthCm || 550);
+  const [targetBottomWidth, setTargetBottomWidth] = useState(initialBottomWidth);
+
   const [beamAttachCm, setBeamAttachCm] = useState(initial.beamAttachCm ?? initialLegHeight);
   const [bayCount, setBayCount] = useState(clampInt(initial.bayCount || 2, 2, 2, 6));
   const [useRightLeg, setUseRightLeg] = useState(Boolean(initial.legsRight));
-  const [legs, setLegs] = useState<TrussMember>(initial.legs);
-  const [legsRight, setLegsRight] = useState<TrussMember>(initial.legsRight || initial.legs);
-  const [beam, setBeam] = useState<TrussMember>(initial.beam || { segments: fitSegments(initialBeamLength) });
-  const [beamRight, setBeamRight] = useState<TrussMember>(initial.beamRight || { segments: fitSegments(initialBeamRightLength) });
-  const [bottomBeam, setBottomBeam] = useState<TrussMember>(initial.bottomBeam || { segments: fitSegments(initialBottomLength) });
-  const [depthMember, setDepthMember] = useState<TrussMember>(initial.depthMember || { segments: fitSegments(initialDims.depthCm || 125) });
-  const [customMembers, setCustomMembers] = useState<TrussCustomMember[]>(() => {
-    const initialMembers = initial.kind === 'CUSTOM' && initial.members?.length
-      ? initial.members
-      : convertPresetToMembers(initial);
-    return initialMembers.length ? initialMembers : createDefaultTrussConfig('CUSTOM').members || [];
-  });
-  const [customAddMode, setCustomAddMode] = useState('FREE');
 
-  const clampedQuantity = clampInt(quantity, 1);
+  // Conservatively initialize preset members to avoid crash on malformed configs
+  const [legs, setLegs] = useState<TrussMember>(() => (
+    initial.legs?.segments?.length ? initial.legs : { segments: fitSegments(initialLegHeight) }
+  ));
+  const [legsRight, setLegsRight] = useState<TrussMember>(() => (
+    initial.legsRight?.segments?.length
+      ? initial.legsRight
+      : (initial.legs?.segments?.length ? initial.legs : { segments: fitSegments(initialLegHeight) })
+  ));
+  const [beam, setBeam] = useState<TrussMember>(() => {
+    if (initial.beam?.segments?.length) return initial.beam;
+    const count = clampInt(initial.bayCount || 2, 2, 2, 6);
+    return {
+      segments: initial.kind === 'MULTI_BAY'
+        ? fitSegmentsForBays(initialBeamLength, count)
+        : fitSegments(initialBeamLength),
+    };
+  });
+  const [beamRight, setBeamRight] = useState<TrussMember>(() => (
+    initial.beamRight?.segments?.length ? initial.beamRight : { segments: fitSegments(initialBeamRightLength) }
+  ));
+  const [bottomBeam, setBottomBeam] = useState<TrussMember>(() => (
+    initial.bottomBeam?.segments?.length
+      ? initial.bottomBeam
+      : { segments: fitSegments(Math.max(10, initialBottomWidth - 2 * COUPLER_LENGTH_CM)) }
+  ));
+  const [depthMember, setDepthMember] = useState<TrussMember>(() => (
+    initial.depthMember?.segments?.length ? initial.depthMember : { segments: fitSegments(initialDims.depthCm || 125) }
+  ));
+
+  const [customMembers, setCustomMembers] = useState<TrussCustomMember[]>(() => (
+    initial.kind === 'CUSTOM'
+      ? initial.members?.length ? initial.members : (createDefaultTrussConfig('CUSTOM').members || [])
+      : []
+  ));
+  const [customAddMode, setCustomAddMode] = useState('FREE');
+  const anchorId = customAddMode === 'FREE' ? null : customAddMode.slice(customAddMode.indexOf(':') + 1);
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    titleInputRef.current?.focus();
+    return () => previousFocus?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isSubmitting) onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [onClose, isSubmitting]);
+
+  const effectiveQuantity = lockQuantity ? 1 : clampInt(quantity, 1, 1);
   const clampedBayCount = clampInt(bayCount, 2, 2, 6);
-  const clampedBeamAttachCm = clampInt(beamAttachCm, targetHeight, 0);
+  const currentLegLength = getMemberLength(legs);
+  const clampedBeamAttachCm = clampInt(beamAttachCm, currentLegLength, 0, currentLegLength);
   const hasRightLeg = supportsRightLeg(kind) && useRightLeg;
 
   const workingConfig: TrussStructureConfig = kind === 'CUSTOM'
     ? {
       kind,
       title,
-      quantity: clampedQuantity,
+      quantity: effectiveQuantity,
       members: customMembers,
       groupId: initial.groupId,
     }
     : {
       kind,
       title,
-      quantity: clampedQuantity,
+      quantity: effectiveQuantity,
       legs,
       legsRight: hasRightLeg ? legsRight : undefined,
       beam: kind === 'TOWER' ? undefined : beam,
@@ -337,47 +449,101 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
   const actualDims = getTrussDimensions(workingConfig);
   const isEditing = Boolean(initialConfig);
 
-  const autoFit = (nextKind = kind) => {
-    if (nextKind === 'CUSTOM') return;
+  // Structural validation rules:
+  // 1. Left and right legs must have equal total length for horizontal frame closing
+  // 2. BOX top and bottom beams must have equal length for rectangular frame
+  // 3. MULTI_BAY must have >= 1 segment per bay
+  // 4. CUSTOM must have >= 1 member
+  const validationErrors = useMemo(() => {
+    const errors: string[] = [];
 
-    const fittedLegs = { segments: fitSegments(targetHeight) };
-    const fittedHeight = getMemberLength(fittedLegs);
+    if (kind === 'CUSTOM') {
+      if (customMembers.length === 0) {
+        errors.push('自訂結構至少需有 1 支桿件。');
+      }
+      if (customMembers.some(member => [member.origin.xCm, member.origin.yCm, member.origin.zCm ?? 0]
+        .some(value => !Number.isFinite(value) || value < 0))) {
+        errors.push('桿件起點座標必須為非負數；向左接續若超出原點，請先調整桿件起點。');
+      }
+      return errors;
+    }
+
+    if (supportsRightLeg(kind) && useRightLeg) {
+      const leftLength = getMemberLength(legs);
+      const rightLength = getMemberLength(legsRight);
+      if (leftLength !== rightLength) {
+        errors.push(`左右柱總長度不一致（左柱 ${leftLength}cm、右柱 ${rightLength}cm），頂梁無法水平閉合。兩柱總長度必須相同。`);
+      }
+    }
+
+    if (kind === 'BOX') {
+      const topLength = getMemberLength(beam);
+      const bottomLength = getMemberLength(bottomBeam);
+      if (topLength !== bottomLength) {
+        errors.push(`口字框上下梁長度不一致（頂梁 ${topLength}cm、底梁 ${bottomLength}cm），無法組成長方形框架。上下梁長度必須相同。`);
+      }
+    }
+
+    if (kind === 'MULTI_BAY') {
+      const bays = splitMemberIntoBays(beam, clampedBayCount);
+      const hasEmptyBay = bays.some(b => b.segments.length === 0);
+      if (hasEmptyBay) {
+        errors.push(`連排門型每跨至少需有 1 段桿件（目前 ${clampedBayCount} 跨中存在缺乏桿件的跨數，頂梁共 ${beam?.segments?.length ?? 0} 段）。請增加頂梁配段。`);
+      }
+    }
+
+    return errors;
+  }, [kind, customMembers, legs, legsRight, useRightLeg, beam, bottomBeam, clampedBayCount]);
+
+  const canSubmit = validationErrors.length === 0;
+
+  const fitLegHeight = (nextKind: TrussStructureKind, outerHeight: number) => {
+    const cantilever = nextKind === 'LSHAPE' || nextKind === 'TSHAPE';
+    const attachedAtTop = (kind !== 'LSHAPE' && kind !== 'TSHAPE') || clampedBeamAttachCm === currentLegLength;
+    const allowance = cantilever && !attachedAtTop
+      ? 0
+      : getTrussCouplerAllowances({ kind: nextKind, bayCount: clampedBayCount }).heightCm;
+    const fittedLegs = { segments: fitSegments(Math.max(10, outerHeight - allowance)) };
     setLegs(fittedLegs);
     if (supportsRightLeg(nextKind) && useRightLeg) {
       setLegsRight({ segments: [...fittedLegs.segments] });
     }
+    if (cantilever) {
+      const height = getMemberLength(fittedLegs);
+      setBeamAttachCm(attachedAtTop ? height : Math.min(clampedBeamAttachCm, Math.max(0, height - COUPLER_LENGTH_CM)));
+    }
+  };
+
+  const autoFit = (nextKind = kind) => {
+    if (nextKind === 'CUSTOM') return;
+
+    const allowances = getTrussCouplerAllowances({ kind: nextKind, bayCount: clampedBayCount });
+    fitLegHeight(nextKind, targetHeight);
 
     if (nextKind === 'TOWER') return;
 
     if (nextKind === 'LSHAPE') {
       setBeam({ segments: fitSegments(targetBeamLeft) });
-      setBeamAttachCm(fittedHeight);
       return;
     }
 
     if (nextKind === 'TSHAPE') {
       setBeam({ segments: fitSegments(targetBeamLeft) });
       setBeamRight({ segments: fitSegments(targetBeamRight) });
-      setBeamAttachCm(fittedHeight);
       return;
     }
 
-    const targetMainBeam = (() => {
-      switch (nextKind) {
-        case 'GOALPOST':
-        case 'BACKDROP':
-        case 'BOX':
-          return targetWidth - 2 * COUPLER_LENGTH_CM;
-        case 'MULTI_BAY':
-          return targetWidth - (clampedBayCount + 1) * COUPLER_LENGTH_CM;
-        default:
-          return targetWidth;
-      }
-    })();
-    setBeam({ segments: fitSegments(targetMainBeam) });
+    const targetMainBeam = Math.max(10, targetWidth - allowances.widthCm);
+    if (nextKind === 'MULTI_BAY') {
+      setBeam({ segments: fitSegmentsForBays(targetMainBeam, clampedBayCount) });
+    } else {
+      setBeam({ segments: fitSegments(targetMainBeam) });
+    }
 
     if (nextKind === 'BOX') {
-      setBottomBeam({ segments: fitSegments(targetBottomWidth - 2 * COUPLER_LENGTH_CM) });
+      const bottomWidth = nextKind === kind ? targetBottomWidth : targetWidth;
+      setTargetBottomWidth(bottomWidth);
+      setBottomBeam({ segments: fitSegments(Math.max(10, bottomWidth - allowances.widthCm)) });
     }
 
     if (nextKind === 'BACKDROP') {
@@ -387,8 +553,9 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
 
   const handleKindChange = (nextKind: TrussStructureKind) => {
     if (nextKind === 'CUSTOM') {
-      if (kind !== 'CUSTOM') {
-        setCustomMembers(convertPresetToMembers(workingConfig));
+      if (customMembers.length === 0) {
+        handleConvertToCustom();
+        return;
       }
       setKind(nextKind);
       return;
@@ -400,7 +567,14 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
   };
 
   const handleConvertToCustom = () => {
-    setCustomMembers(convertPresetToMembers(workingConfig));
+    const members = convertPresetToMembers(workingConfig);
+    const before = calculateTrussBom(workingConfig, 1).couplers;
+    const after = calculateTrussBom({ ...workingConfig, kind: 'CUSTOM', members }, 1).couplers;
+    if (before !== after && !confirm(
+      `目前預設與自訂的接頭計算規則不同：每座接頭將由 ${before} 個變成 ${after} 個。請先核對用料，確定轉為自訂？`,
+    )) return;
+    setCustomMembers(members);
+    setCustomAddMode('FREE');
     setKind('CUSTOM');
   };
 
@@ -416,7 +590,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
   const duplicateCustomMember = (member: TrussCustomMember) => {
     const copy: TrussCustomMember = {
       ...member,
-      id: createCustomMemberId(),
+      id: `custom-${crypto.randomUUID()}`,
       label: `${member.label?.trim() || '桿件'} 複製`,
       origin: { ...member.origin },
       segments: [...member.segments],
@@ -433,24 +607,30 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
     setCustomMembers(prev => (
       prev.length <= 1 ? prev : prev.filter(member => member.id !== memberId)
     ));
+    if (anchorId === memberId) setCustomAddMode('FREE');
   };
 
   const addCustomMember = () => {
     if (customAddMode === 'FREE') {
-      setCustomMembers(prev => [...prev, createCustomMember({ xCm: 0, yCm: 0 })]);
+      setCustomMembers(prev => [...prev, createCustomMember({ xCm: 0, yCm: 0, zCm: 0 })]);
       return;
     }
 
-    const [mode, memberId] = customAddMode.split(':');
-    const anchor = customMembers.find(member => member.id === memberId);
-    const endpoint = anchor ? getCustomMemberEndpoint(anchor) : { xCm: 0, yCm: 0, zCm: 0 };
+    const anchor = customMembers.find(member => member.id === anchorId);
+    if (!anchor) {
+      setCustomAddMode('FREE');
+      setCustomMembers(prev => [...prev, createCustomMember({ xCm: 0, yCm: 0, zCm: 0 })]);
+      return;
+    }
 
-    if (mode === 'UP') {
+    const endpoint = getCustomMemberEndpoint(anchor);
+
+    if (customAddMode.startsWith('UP:')) {
       setCustomMembers(prev => [...prev, createCustomMember(endpoint, 'VERTICAL', 1, '接續立柱')]);
       return;
     }
 
-    if (mode === 'LEFT') {
+    if (customAddMode.startsWith('LEFT:')) {
       setCustomMembers(prev => [...prev, createCustomMember(endpoint, 'HORIZONTAL', -1, '左接梁')]);
       return;
     }
@@ -458,20 +638,30 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
     setCustomMembers(prev => [...prev, createCustomMember(endpoint, 'HORIZONTAL', 1, '右接梁')]);
   };
 
-  const handleSubmit = () => {
-    if (!canSubmit) return;
+  const handleSubmit = async () => {
+    if (!canSubmit || isSubmitting) return;
 
-    onSubmit({
-      ...workingConfig,
-      title: title.trim() || 'Truss 結構',
-      quantity: clampedQuantity,
-    });
-    onClose();
+    setSubmitError(null);
+    setIsSubmitting(true);
+    try {
+      const configToSubmit: TrussStructureConfig = {
+        ...workingConfig,
+        title: title.trim() || 'Truss 結構',
+        quantity: effectiveQuantity,
+      };
+
+      await onSubmit(configToSubmit);
+      onClose();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '儲存失敗，請重試';
+      setSubmitError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const showWidthField = kind === 'GOALPOST' || kind === 'BACKDROP' || kind === 'BOX' || kind === 'MULTI_BAY';
   const showCantileverFields = kind === 'LSHAPE' || kind === 'TSHAPE';
-  const canSubmit = kind !== 'CUSTOM' || customMembers.length > 0;
 
   const renderCustomMemberEditor = (member: TrussCustomMember, index: number) => {
     const basePlateChecked = member.basePlate ?? member.origin.yCm === 0;
@@ -502,9 +692,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                     orientation,
                     direction: orientation === 'HORIZONTAL' ? (item.direction === -1 ? -1 : 1) : undefined,
                     basePlate: orientation === 'VERTICAL' ? (item.basePlate ?? item.origin.yCm === 0) : undefined,
-                    origin: orientation === 'DEPTH'
-                      ? { ...item.origin, zCm: item.origin.zCm ?? 0 }
-                      : { ...item.origin },
+                    origin: { ...item.origin, zCm: item.origin.zCm ?? 0 },
                   }));
                 }}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
@@ -569,6 +757,15 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
               }))}
             />
             <NumberField
+              label="Origin Z (cm)"
+              value={member.origin.zCm ?? 0}
+              min={0}
+              onChange={(raw) => updateCustomMember(member.id, item => ({
+                ...item,
+                origin: { ...item.origin, zCm: clampInt(raw, item.origin.zCm ?? 0, 0) },
+              }))}
+            />
+            <NumberField
               label="目標長度自動配段 (cm)"
               value={currentLength}
               min={10}
@@ -581,6 +778,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
 
           <div className="flex flex-col gap-1">
             <button
+              type="button"
               onClick={() => duplicateCustomMember(member)}
               className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-blue-600 flex items-center justify-center"
               title="複製桿件"
@@ -588,6 +786,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
               <Copy className="w-3.5 h-3.5" />
             </button>
             <button
+              type="button"
               onClick={() => deleteCustomMember(member.id)}
               disabled={customMembers.length <= 1}
               className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-500 flex items-center justify-center"
@@ -610,22 +809,63 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
     );
   };
 
+  const isDeadAnchor = customAddMode !== 'FREE' && !customMembers.some(member => member.id === anchorId);
+  const effectiveCustomAddMode = isDeadAnchor ? 'FREE' : customAddMode;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 backdrop-blur-sm p-4">
+    <div
+      ref={dialogRef}
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (event.key !== 'Tab') return;
+        const controls = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]',
+        ) || []).filter(element => element.offsetParent !== null && !element.closest('[inert]'));
+        if (controls.length === 0) {
+          event.preventDefault();
+          dialogRef.current?.focus();
+          return;
+        }
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 backdrop-blur-sm p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="truss-builder-title"
+    >
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl border border-slate-200 flex flex-col max-h-[92vh] overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-slate-100">
-          <h3 className="text-sm font-bold text-slate-800">Truss 建造器</h3>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600">
+          <h3 id="truss-builder-title" className="text-sm font-bold text-slate-800">Truss 建造器</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+            title="關閉"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[440px_1fr] flex-1 min-h-0 overflow-hidden">
+        <div
+          ref={(element) => { if (element) element.inert = isSubmitting; }}
+          aria-busy={isSubmitting}
+          className="grid grid-cols-1 lg:grid-cols-[440px_1fr] flex-1 min-h-0 min-w-0 overflow-hidden"
+        >
           <div className="overflow-y-auto p-4 space-y-4 border-r border-slate-100">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {KIND_OPTIONS.map(option => (
                 <button
                   key={option.kind}
+                  type="button"
                   onClick={() => handleKindChange(option.kind)}
                   className={`rounded-lg border p-2 text-left transition-colors ${kind === option.kind ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}
                 >
@@ -637,18 +877,28 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
             </div>
 
             {kind !== 'CUSTOM' && (
-              <button
-                onClick={handleConvertToCustom}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-bold text-blue-700 hover:border-blue-300 hover:bg-blue-50"
-              >
-                ⤷ 轉為自訂繼續編輯
-              </button>
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={handleConvertToCustom}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-bold text-blue-700 hover:border-blue-300 hover:bg-blue-50"
+                >
+                  {customMembers.length > 0
+                    ? '⤷ 依目前預設重新產生自訂桿件（將取代自訂草稿）'
+                    : '⤷ 轉為自訂繼續編輯'}
+                </button>
+                <div className="text-[11px] text-slate-500 px-1 leading-relaxed">
+                  預設結構外徑包含 25cm 轉角連接件；轉為自訂後將以實際桿件端點座標範圍呈現（不計轉角連接件間距）。
+                  {customMembers.length > 0 && ' 點擊上方按鈕將以目前預設桿件覆蓋現有的自訂草稿。'}
+                </div>
+              </div>
             )}
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1 col-span-2">
                 <label className="text-[10px] font-bold text-slate-500 uppercase">用途名稱</label>
                 <input
+                  ref={titleInputRef}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
@@ -662,7 +912,18 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                   onChange={(raw) => {
                     const next = clampInt(raw, targetWidth, 10);
                     setTargetWidth(next);
-                    setBeam({ segments: fitSegments(next) });
+                    const allowances = getTrussCouplerAllowances({ kind, bayCount: clampedBayCount });
+                    const targetMainBeam = Math.max(10, next - allowances.widthCm);
+                    if (kind === 'MULTI_BAY') {
+                      setBeam({ segments: fitSegmentsForBays(targetMainBeam, clampedBayCount) });
+                    } else {
+                      const fittedBeam = { segments: fitSegments(targetMainBeam) };
+                      setBeam(fittedBeam);
+                      if (kind === 'BOX') {
+                        setBottomBeam(fittedBeam);
+                        setTargetBottomWidth(next);
+                      }
+                    }
                   }}
                 />
               )}
@@ -698,16 +959,8 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                   value={targetHeight}
                   onChange={(raw) => {
                     const next = clampInt(raw, targetHeight, 10);
-                    const previousAttachAtTop = beamAttachCm === getMemberLength(legs);
-                    const nextLegs = { segments: fitSegments(next) };
+                    fitLegHeight(kind, next);
                     setTargetHeight(next);
-                    setLegs(nextLegs);
-                    if (supportsRightLeg(kind) && useRightLeg) {
-                      setLegsRight({ segments: [...nextLegs.segments] });
-                    }
-                    if ((kind === 'LSHAPE' || kind === 'TSHAPE') && previousAttachAtTop) {
-                      setBeamAttachCm(getMemberLength(nextLegs));
-                    }
                   }}
                 />
               )}
@@ -715,9 +968,12 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
               {showCantileverFields && (
                 <NumberField
                   label="梁附掛高度 (cm)"
-                  value={beamAttachCm}
+                  value={clampedBeamAttachCm}
                   min={0}
-                  onChange={(raw) => setBeamAttachCm(clampInt(raw, beamAttachCm, 0))}
+                  onChange={(raw) => {
+                    const maxAttach = getMemberLength(legs);
+                    setBeamAttachCm(clampInt(raw, beamAttachCm, 0, maxAttach));
+                  }}
                 />
               )}
 
@@ -740,7 +996,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                   onChange={(raw) => {
                     const next = clampInt(raw, targetBottomWidth, 10);
                     setTargetBottomWidth(next);
-                    setBottomBeam({ segments: fitSegments(next - 2 * COUPLER_LENGTH_CM) });
+                    setBottomBeam({ segments: fitSegments(Math.max(10, next - 2 * COUPLER_LENGTH_CM)) });
                   }}
                 />
               )}
@@ -753,7 +1009,9 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                     onChange={(e) => {
                       const nextBayCount = Number(e.target.value);
                       setBayCount(nextBayCount);
-                      setBeam({ segments: fitSegments(targetWidth - (nextBayCount + 1) * COUPLER_LENGTH_CM) });
+                      const allowances = getTrussCouplerAllowances({ kind: 'MULTI_BAY', bayCount: nextBayCount });
+                      const targetMainBeam = Math.max(10, targetWidth - allowances.widthCm);
+                      setBeam({ segments: fitSegmentsForBays(targetMainBeam, nextBayCount) });
                     }}
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
                   >
@@ -764,20 +1022,28 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                 </div>
               )}
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">座數</label>
-                <input
-                  type="number"
-                  min={1}
+              {lockQuantity ? (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">座數</label>
+                  <div className="flex h-[38px] items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500">
+                    <span>1 座</span>
+                    <span className="text-[11px] text-slate-400">（場景編輯固定單座）</span>
+                  </div>
+                </div>
+              ) : (
+                <NumberField
+                  label="座數"
                   value={quantity}
-                  onChange={(e) => setQuantity(clampInt(Number(e.target.value), quantity))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  min={1}
+                  step={1}
+                  onChange={(raw) => setQuantity(clampInt(raw, quantity, 1))}
                 />
-              </div>
+              )}
 
               {kind !== 'CUSTOM' && (
                 <div className="space-y-1 flex items-end">
                   <button
+                    type="button"
                     onClick={() => autoFit()}
                     className="w-full h-[38px] rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-xs font-bold hover:bg-blue-100"
                   >
@@ -805,7 +1071,9 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
             )}
 
             <div className="rounded-lg bg-slate-900 text-white px-3 py-2">
-              <div className="text-[10px] text-slate-300">實際外徑</div>
+              <div className="text-[10px] text-slate-300">
+                {kind === 'CUSTOM' ? '桿件座標範圍' : '實際外徑'}
+              </div>
               <div className="text-sm font-bold">
                 {kind === 'TOWER'
                   ? `H${actualDims.heightCm}`
@@ -813,28 +1081,42 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
               </div>
             </div>
 
+            {validationErrors.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-1 text-xs text-amber-800">
+                <div className="font-bold text-amber-900">
+                  結構規格驗證未通過
+                </div>
+                {validationErrors.map((err, idx) => (
+                  <div key={idx} className="text-amber-700 pl-2">
+                    • {err}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {kind === 'CUSTOM' ? (
               <div className="space-y-3">
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
                   <div className="flex gap-2">
                     <select
-                      value={customAddMode}
+                      value={effectiveCustomAddMode}
                       onChange={(e) => setCustomAddMode(e.target.value)}
                       className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs"
                     >
                       <option value="FREE">自由位置</option>
                       {customMembers.map((member, index) => {
-                        const label = getCustomMemberLabel(member, index);
+                        const memberLabel = getCustomMemberLabel(member, index);
                         return (
                           <React.Fragment key={member.id}>
-                            <option value={`UP:${member.id}`}>接在 {label} 頂端往上</option>
-                            <option value={`RIGHT:${member.id}`}>接在 {label} 頂端往右</option>
-                            <option value={`LEFT:${member.id}`}>接在 {label} 頂端往左</option>
+                            <option value={`UP:${member.id}`}>接在 {memberLabel} 頂端往上</option>
+                            <option value={`RIGHT:${member.id}`}>接在 {memberLabel} 頂端往右</option>
+                            <option value={`LEFT:${member.id}`}>接在 {memberLabel} 頂端往左</option>
                           </React.Fragment>
                         );
                       })}
                     </select>
                     <button
+                      type="button"
                       onClick={addCustomMember}
                       className="h-[38px] px-3 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 flex items-center gap-1.5"
                     >
@@ -881,17 +1163,37 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
           </div>
         </div>
 
+        {submitError && (
+          <div className="px-4 py-2 bg-red-50 border-t border-red-100 text-xs font-semibold text-red-600 flex items-center justify-between">
+            <span>儲存失敗：{submitError}</span>
+            <button
+              type="button"
+              onClick={() => setSubmitError(null)}
+              className="text-red-400 hover:text-red-600 p-0.5 rounded"
+              title="關閉提示"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center gap-2">
-          <button onClick={onClose} className="flex-1 py-2 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="flex-1 py-2 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          >
             取消
           </button>
           <button
+            type="button"
             onClick={handleSubmit}
-            disabled={!canSubmit}
+            disabled={!canSubmit || isSubmitting}
             className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:bg-slate-300 disabled:hover:bg-slate-300 flex items-center justify-center gap-2"
           >
             <Check className="w-3.5 h-3.5" />
-            {submitLabel ?? (isEditing ? '儲存結構' : '加入場景')}
+            {isSubmitting ? '儲存中...' : (submitLabel ?? (isEditing ? '儲存結構' : '加入場景'))}
           </button>
         </div>
       </div>

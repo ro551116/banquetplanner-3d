@@ -143,7 +143,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
   const customMembers = config.kind === 'CUSTOM' ? config.members || [] : [];
   const customBounds = getCustomBounds(customMembers);
   const customJoints = detectCustomJoints(customMembers);
-  const hasCustomDepth = customMembers.some(member => member.orientation === 'DEPTH');
+  const hasCustomDepth = customBounds.hasDepth;
   const hasSideView = Boolean((config.kind === 'BACKDROP' && config.depthMember) || (config.kind === 'CUSTOM' && hasCustomDepth));
   const contentLeft = 260;
   const contentTop = 92;
@@ -200,10 +200,10 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
     quantity: quantityOverride ?? config.quantity,
   };
 
-  const renderTwoLegTopBeam = () => (
+  const renderTwoLegTopBeam = (legBaseY = baseY) => (
     <g>
-      {drawMemberSegments(legs, leftCornerX, baseY, 'y', frontScale, 'left-leg')}
-      {drawMemberSegments(rightLeg, rightCornerX, baseY, 'y', frontScale, 'right-leg')}
+      {drawMemberSegments(legs, leftCornerX, legBaseY, 'y', frontScale, 'left-leg')}
+      {drawMemberSegments(rightLeg, rightCornerX, legBaseY, 'y', frontScale, 'right-leg')}
       {config.beam && drawMemberSegments(config.beam, topBeamStartX, beamY, 'x', frontScale, 'beam')}
       <CornerCoupler x={leftCornerX} y={topY} couplerPx={couplerPx} />
       <CornerCoupler x={rightCornerX} y={topY} couplerPx={couplerPx} />
@@ -216,14 +216,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
   const mapCustomFrontY = (yCm: number) => baseY - (yCm - customBounds.minYCm) * frontScale;
   const mapCustomSideZ = (zCm: number) => sideX + (zCm - customBounds.minZCm) * sideScale;
   const mapCustomSideY = (yCm: number) => sideBaseY - (yCm - customBounds.minYCm) * sideScale;
-  const customDepthIds = new Set(customMembers.filter(member => member.orientation === 'DEPTH').map(member => member.id));
-  const customDepthJoints = customJoints.filter(joint => (
-    isCustomCouplerJoint(joint, customMembers) && joint.memberIds.some(memberId => customDepthIds.has(memberId))
-  ));
-  const customSideVerticalIds = new Set(
-    customDepthJoints.flatMap(joint => joint.memberIds)
-      .filter(memberId => customMembers.some(member => member.id === memberId && member.orientation === 'VERTICAL')),
-  );
+  const customSideJoints = customJoints.filter(joint => isCustomCouplerJoint(joint, customMembers));
 
   const renderCustomStructure = () => (
     <g>
@@ -266,7 +259,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
     <g>
       <ViewLabel x={sideX + sideDepthPx / 2} y={86}>側視圖</ViewLabel>
       {customMembers
-        .filter(member => member.orientation === 'VERTICAL' && customSideVerticalIds.has(member.id))
+        .filter(member => member.orientation === 'VERTICAL')
         .map((member, index) => {
           const start = getCustomMemberStart(member);
           const key = `custom-side-vertical-${member.id || index}`;
@@ -291,7 +284,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
             `custom-side-depth-${member.id || index}`,
           );
         })}
-      {customDepthJoints.map(joint => (
+      {customSideJoints.map(joint => (
         <Joint key={`side-${joint.id}`} x={mapCustomSideZ(joint.zCm)} y={mapCustomSideY(joint.yCm)} size={sideCouplerPx} />
       ))}
     </g>
@@ -328,7 +321,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
 
       {config.kind === 'BOX' && (
         <g>
-          {renderTwoLegTopBeam()}
+          {renderTwoLegTopBeam(baseY - barPx)}
           {config.bottomBeam && drawMemberSegments(config.bottomBeam, bottomBeamStartX, bottomBeamY, 'x', frontScale, 'bottom-beam')}
           <Joint x={leftCornerX} y={bottomBeamY} size={couplerPx} />
           <Joint x={rightCornerX} y={bottomBeamY} size={couplerPx} />

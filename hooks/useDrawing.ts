@@ -34,6 +34,8 @@ export function useDrawing() {
     setDrawings([]);
   }, []);
 
+  const cancelPath = useCallback(() => setCurrentPath([]), []);
+
   return {
     isDrawMode,
     setIsDrawMode,
@@ -46,5 +48,6 @@ export function useDrawing() {
     extendPath,
     finishPath,
     clearDrawings,
+    cancelPath,
   };
 }

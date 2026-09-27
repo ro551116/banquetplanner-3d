@@ -298,9 +298,51 @@ app.get('/api/truss-studio', (_req, res) => {
 
 app.put('/api/truss-studio', (req, res) => {
   try {
-    const data: TrussStudioFile = {
-      events: Array.isArray(req.body.events) ? req.body.events : [],
-    };
+    if (!req.body || !Array.isArray(req.body.events)) {
+      return sendBadRequest(res, 'events array is required');
+    }
+
+    const validatedEvents: TrussStudioEvent[] = [];
+    const now = new Date().toISOString();
+
+    for (const rawEvent of req.body.events) {
+      if (!isRecord(rawEvent) || typeof rawEvent.name !== 'string') {
+        return sendBadRequest(res, 'invalid event format');
+      }
+
+      const eventId = typeof rawEvent.id === 'string' && rawEvent.id.trim() ? rawEvent.id.trim() : crypto.randomUUID();
+      const structures: TrussStudioEntry[] = [];
+
+      if (Array.isArray(rawEvent.structures)) {
+        for (const rawStructure of rawEvent.structures) {
+          if (!isRecord(rawStructure) || rawStructure.config === undefined) {
+            return sendBadRequest(res, 'invalid structure format');
+          }
+
+          const validation = validateTrussConfig(rawStructure.config);
+          if (validation.error || !validation.config) {
+            return sendBadRequest(res, validation.error || 'Invalid structure config');
+          }
+
+          structures.push({
+            id: typeof rawStructure.id === 'string' && rawStructure.id.trim() ? rawStructure.id.trim() : crypto.randomUUID(),
+            config: validation.config,
+            created_at: typeof rawStructure.created_at === 'string' ? rawStructure.created_at : now,
+            updated_at: typeof rawStructure.updated_at === 'string' ? rawStructure.updated_at : now,
+          });
+        }
+      }
+
+      validatedEvents.push({
+        id: eventId,
+        name: rawEvent.name.trim(),
+        created_at: typeof rawEvent.created_at === 'string' ? rawEvent.created_at : now,
+        updated_at: typeof rawEvent.updated_at === 'string' ? rawEvent.updated_at : now,
+        structures,
+      });
+    }
+
+    const data: TrussStudioFile = { events: validatedEvents };
     writeTrussStudio(data);
     res.json(data);
   } catch (err) {
@@ -388,7 +430,20 @@ app.post('/api/truss-studio/events/:eventId/structures', (req, res) => {
       updated_at: now,
     };
 
-    event.structures.push(structure);
+    const afterId = typeof req.body.afterStructureId === 'string'
+      ? req.body.afterStructureId
+      : undefined;
+
+    if (afterId) {
+      const index = event.structures.findIndex(s => s.id === afterId);
+      if (index !== -1) {
+        event.structures.splice(index + 1, 0, structure);
+      } else {
+        event.structures.push(structure);
+      }
+    } else {
+      event.structures.push(structure);
+    }
     event.updated_at = now;
     writeTrussStudio(data);
     res.status(201).json(structure);

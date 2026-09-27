@@ -15,10 +15,12 @@ import StatusBar from './components/StatusBar';
 import { SceneCanvas } from './components/SceneCanvas';
 import { SceneManager } from './components/SceneManager';
 import { HomeMenu } from './components/HomeMenu';
-import { AddObjectPanel } from './components/AddObjectPanel';
+import { AddObjectPanel, getObjectLabel } from './components/AddObjectPanel';
 import { TrussBuilderModal } from './components/TrussBuilderModal';
 import { TrussSheetModal } from './components/TrussSheetModal';
 import { TrussStudio } from './components/TrussStudio';
+import { EditorControls } from './components/EditorControls';
+import { EditTool, EditorSession } from './interaction';
 
 export default function App() {
   const [sceneId, setSceneId] = useState<string | null>(null);
@@ -29,10 +31,15 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [viewIndex, setViewIndex] = useState(0);
+  const [viewRequest, setViewRequest] = useState(0);
   const [viewEnvironment, setViewEnvironment] = useState<'day' | 'night'>('day');
-  const [draggedType, setDraggedType] = useState<ObjectType | null>(null);
-  const [panelOpen, setPanelOpen] = useState(true);
-  const [addPanelOpen, setAddPanelOpen] = useState(true);
+  const [showLabels, setShowLabels] = useState(false);
+  const [pendingPlacement, setPendingPlacement] = useState<BanquetObject[] | null>(null);
+  const [editTool, setEditTool] = useState<EditTool>('move');
+  const [snapStep, setSnapStep] = useState(0.1);
+  const editorSessionRef = useRef<EditorSession | null>(null);
+  const [panelOpen, setPanelOpen] = useState(() => window.matchMedia('(min-width: 768px)').matches);
+  const [addPanelOpen, setAddPanelOpen] = useState(() => window.matchMedia('(min-width: 768px)').matches);
   const [showTrussBuilder, setShowTrussBuilder] = useState(false);
   const [editingTrussId, setEditingTrussId] = useState<string | null>(null);
   const [showTrussSheet, setShowTrussSheet] = useState(false);
@@ -42,13 +49,27 @@ export default function App() {
   const objectRefs = useRef<Record<string, THREE.Group | null>>({});
 
   const {
-    objects, setObjects, resetObjects, addObject, updateObject, deleteObject,
+    objects, setObjects, resetObjects, updateObject, deleteObject,
     deleteByIds, handleBatchUpdate, handleBulkPropertyUpdate,
     handleBatchAddObjects, duplicateObjects, handleAddStair, handleRemoveStair,
     handleUpdateStair, undo, redo, canUndo, canRedo
   } = useObjects();
 
   const drawing = useDrawing();
+
+  const cancelEditing = useCallback(() => {
+    if (editorSessionRef.current?.cancel()) return true;
+    if (pendingPlacement) {
+      setPendingPlacement(null);
+      return true;
+    }
+    if (drawing.isDrawMode || drawing.currentPath.length) {
+      drawing.cancelPath();
+      drawing.setIsDrawMode(false);
+      return true;
+    }
+    return false;
+  }, [pendingPlacement, drawing.isDrawMode, drawing.currentPath.length, drawing.cancelPath, drawing.setIsDrawMode]);
 
   const sceneIO = useSceneIO({
     sceneId, hall, objects, drawings: drawing.drawings,
@@ -57,10 +78,13 @@ export default function App() {
   });
 
   useKeyboard({
+    enabled: sceneId !== null && !showTrussBuilder && !showTrussSheet && !showBatchModal,
     mode, selectedIds, objects,
     deleteByIds, handleBatchUpdate,
     setSelectedIds, setIsDrawMode: drawing.setIsDrawMode,
-    undo, redo, duplicateObjects
+    undo, redo, duplicateObjects,
+    onCancel: cancelEditing, busy: isDragging || pendingPlacement !== null,
+    tool: editTool, setTool: tool => { cancelEditing(); setEditTool(tool); }, snapStep
   });
 
   const handleLoadScene = useCallback(async (id: string) => {
@@ -86,6 +110,7 @@ export default function App() {
   }, [sceneIO.loadScene]);
 
   const handleBackToList = useCallback(async () => {
+    cancelEditing();
     try {
       setIsExiting(true);
       await sceneIO.flushSave();
@@ -96,14 +121,30 @@ export default function App() {
     } finally {
       setIsExiting(false);
     }
-  }, [sceneIO.flushSave]);
+  }, [sceneIO.flushSave, cancelEditing]);
 
-  const handleAddObjectFromSidebar = useCallback((type: ObjectType, pos?: { x: number; y: number; z: number }) => {
-    const newObj = addObject(type, pos);
-    setSelectedIds(new Set([newObj.id]));
-    drawing.setIsDrawMode(false);
-    return newObj;
-  }, [addObject, setSelectedIds, drawing.setIsDrawMode]);
+  const beginPlacement = (type: ObjectType) => {
+    cancelEditing();
+    if (window.innerWidth < 768) setPanelOpen(false);
+    setSelectedIds(new Set());
+    setEditTool('move');
+    setPendingPlacement([createObjectConfig(type)]);
+  };
+
+  const placePending = (position: { x: number; y: number; z: number }) => {
+    if (!pendingPlacement) return;
+    const placed = pendingPlacement.map(object => ({
+      ...object,
+      position: { x: object.position.x + position.x, y: object.position.y + position.y, z: object.position.z + position.z },
+    }));
+    setSelectedIds(handleBatchAddObjects(placed));
+    setPendingPlacement(null);
+  };
+
+  const duplicateSelected = () => {
+    const copies = duplicateObjects(selectedIds);
+    setSelectedIds(new Set(copies.map(object => object.id)));
+  };
 
   const handleBatchAddFromModal = (newObjects: import('./types').BanquetObject[]) => {
     const newIds = handleBatchAddObjects(newObjects);
@@ -111,12 +152,14 @@ export default function App() {
   };
 
   const handleOpenTrussBuilder = () => {
+    cancelEditing();
     setEditingTrussId(null);
     setShowTrussBuilder(true);
     drawing.setIsDrawMode(false);
   };
 
   const handleEditTrussStructure = (object: BanquetObject) => {
+    cancelEditing();
     setEditingTrussId(object.id);
     setShowTrussBuilder(true);
     drawing.setIsDrawMode(false);
@@ -159,7 +202,9 @@ export default function App() {
       obj.trussSchematicColors = false;
       return obj;
     });
-    handleBatchAddFromModal(newObjects);
+    setSelectedIds(new Set());
+    setEditTool('move');
+    setPendingPlacement(newObjects);
   };
 
   const deleteSelected = () => {
@@ -168,12 +213,13 @@ export default function App() {
   };
 
   const handleSetMode = (m: 'EDIT' | 'VIEW') => {
+    cancelEditing();
     setMode(m);
     if (m === 'VIEW') {
       setSelectedIds(new Set());
       drawing.setIsDrawMode(false);
     } else {
-      setPanelOpen(true);
+      setPanelOpen(window.innerWidth >= 768);
     }
   };
 
@@ -247,6 +293,8 @@ export default function App() {
           initialConfig={editingTrussId ? objects.find(obj => obj.id === editingTrussId)?.trussStructure : undefined}
           onClose={handleCloseTrussBuilder}
           onSubmit={handleSubmitTrussStructure}
+          submitLabel={editingTrussId ? '更新結構' : '下一步：放置到場景'}
+          lockQuantity={editingTrussId !== null}
         />
       )}
 
@@ -259,36 +307,38 @@ export default function App() {
         mode={mode}
         setMode={handleSetMode}
         isDrawMode={drawing.isDrawMode}
-        setIsDrawMode={drawing.setIsDrawMode}
+        setIsDrawMode={active => { cancelEditing(); drawing.setIsDrawMode(active); }}
         drawingColor={drawing.drawingColor}
         setDrawingColor={drawing.setDrawingColor}
         clearDrawings={drawing.clearDrawings}
         setSelectedIds={setSelectedIds}
-        handleImportClick={sceneIO.handleImportClick}
+        handleImportClick={() => { cancelEditing(); sceneIO.handleImportClick(); }}
         exportScene={sceneIO.exportScene}
-        setShowBatchModal={setShowBatchModal}
-        undo={undo}
-        redo={redo}
+        setShowBatchModal={active => { if (active) cancelEditing(); setShowBatchModal(active); }}
+        undo={() => { if (!cancelEditing()) undo(); }}
+        redo={() => { if (!cancelEditing()) redo(); }}
         canUndo={canUndo}
         canRedo={canRedo}
         viewIndex={viewIndex}
-        setViewIndex={setViewIndex}
+        setViewIndex={index => { setViewIndex(index); setViewRequest(request => request + 1); }}
         viewEnvironment={viewEnvironment}
         setViewEnvironment={setViewEnvironment}
+        showLabels={showLabels}
+        setShowLabels={setShowLabels}
         takeScreenshot={sceneIO.takeScreenshot}
         panelOpen={panelOpen}
-        setPanelOpen={setPanelOpen}
+        setPanelOpen={open => { setPanelOpen(open); if (open && window.innerWidth < 768) setAddPanelOpen(false); }}
         addPanelOpen={addPanelOpen}
-        setAddPanelOpen={setAddPanelOpen}
+        setAddPanelOpen={open => { setAddPanelOpen(open); if (open && window.innerWidth < 768) setPanelOpen(false); }}
         onBackToList={handleBackToList}
         hasTrussStructures={objects.some(obj => obj.type === ObjectType.TRUSS_STRUCTURE)}
         onOpenTrussSheets={() => setShowTrussSheet(true)}
       />
       {/* Save Status Indicator */}
-      {sceneId && sceneIO.saveStatus !== 'idle' && (
+      {sceneId && (
         <div
           aria-live="polite"
-          className={`px-4 py-1 text-xs flex items-center justify-between border-b z-20 ${
+          className={`h-7 flex-shrink-0 px-4 py-1 text-xs flex items-center justify-between border-b z-20 ${
             sceneIO.saveStatus === 'error'
               ? 'bg-red-50 text-red-700 border-red-200'
               : sceneIO.saveStatus === 'saving'
@@ -300,6 +350,7 @@ export default function App() {
         >
           <div className="flex items-center gap-2">
             <span className="font-medium">
+              {sceneIO.saveStatus === 'idle' && '已載入'}
               {sceneIO.saveStatus === 'dirty' && '尚未儲存'}
               {sceneIO.saveStatus === 'saving' && '儲存中…'}
               {sceneIO.saveStatus === 'saved' && '已儲存'}
@@ -328,8 +379,8 @@ export default function App() {
           <AddObjectPanel
             isOpen={addPanelOpen}
             setIsOpen={setAddPanelOpen}
-            addObject={(type) => handleAddObjectFromSidebar(type)}
-            setDraggedType={setDraggedType}
+            placingType={pendingPlacement?.[0]?.type ?? null}
+            onBeginPlacement={beginPlacement}
             setIsDrawMode={drawing.setIsDrawMode}
             onOpenTrussBuilder={handleOpenTrussBuilder}
           />
@@ -344,7 +395,9 @@ export default function App() {
             selectedIds={selectedIds}
             setSelectedIds={setSelectedIds}
             viewIndex={viewIndex}
+            viewRequest={viewRequest}
             viewEnvironment={viewEnvironment}
+            showLabels={showLabels}
             isDragging={isDragging}
             setIsDragging={setIsDragging}
             isDrawMode={drawing.isDrawMode}
@@ -354,12 +407,28 @@ export default function App() {
             startPath={drawing.startPath}
             extendPath={drawing.extendPath}
             finishPath={drawing.finishPath}
-            draggedType={draggedType}
-            setDraggedType={setDraggedType}
-            addObject={handleAddObjectFromSidebar}
+            tool={editTool}
+            snapStep={snapStep}
+            sessionRef={editorSessionRef}
+            pendingPlacement={pendingPlacement}
+            onPlace={placePending}
+            onCancel={cancelEditing}
             handleBatchUpdate={handleBatchUpdate}
             objectRefs={objectRefs}
           />
+          {mode === 'EDIT' && !drawing.isDrawMode && (
+            <div className="absolute top-3 left-3 right-3 z-20 pointer-events-none">
+              <EditorControls
+                tool={editTool} setTool={tool => { cancelEditing(); setEditTool(tool); }}
+                snapStep={snapStep} setSnapStep={setSnapStep}
+                selectedCount={selectedIds.size}
+                isPlacing={pendingPlacement !== null}
+                placementLabel={pendingPlacement ? (pendingPlacement[0].label || getObjectLabel(pendingPlacement[0].type)) : ''}
+                onCancel={cancelEditing} busy={isDragging}
+                onDuplicate={duplicateSelected} onDelete={deleteSelected}
+              />
+            </div>
+          )}
         </div>
 
         {/* Right Sidebar */}

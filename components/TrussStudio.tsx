@@ -33,9 +33,11 @@ interface TrussStudioProps {
 }
 
 type BuilderState = { mode: 'new' } | { mode: 'edit'; id: string } | null;
-type SaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
+type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 const stagger = (i: number) => ({ animationDelay: `${80 + i * 60}ms` });
+
+const EMPTY_STRUCTURES: TrussStudioEntry[] = [];
 
 const sanitizeConfig = (config: TrussStructureConfig): TrussStructureConfig => {
   const next = cloneTrussConfig(config);
@@ -62,6 +64,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
   const [events, setEvents] = useState<TrussStudioEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [builder, setBuilder] = useState<BuilderState>(null);
   const [saveState, setSaveState] = useState<SaveState>('idle');
@@ -69,61 +72,132 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
   const [newEventName, setNewEventName] = useState('');
   const [renamingEventId, setRenamingEventId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const hasLoaded = useRef(false);
-  const skipNextSave = useRef(false);
+  const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
+  const [navigatingBack, setNavigatingBack] = useState(false);
+
+  const inFlightCount = useRef(0);
+  const opSeq = useRef(0);
+  const pendingMutation = useRef<Promise<unknown>>(Promise.resolve());
+  const isRenamingRef = useRef(false);
   const newEventInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const newEventNameRef = useRef(newEventName);
+  const renameValueRef = useRef(renameValue);
+  newEventNameRef.current = newEventName;
+  renameValueRef.current = renameValue;
+
+  const load = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await trussStudioApi.get();
+      setEvents(Array.isArray(data.events) ? data.events : []);
+      setHasLoaded(true);
+      setError(null);
+      setRetryAction(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '載入 Truss 工作台失敗';
+      setError(msg);
+      setRetryAction(() => load);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let active = true;
-
-    const load = async () => {
-      try {
-        setLoading(true);
-        const data = await trussStudioApi.get();
-        if (!active) return;
-        skipNextSave.current = true;
-        setEvents(Array.isArray(data.events) ? data.events : []);
-        setError(null);
-      } catch (err) {
-        if (!active) return;
-        setError(err instanceof Error ? err.message : '載入 Truss 工作台失敗');
-      } finally {
-        if (!active) return;
-        hasLoaded.current = true;
-        setLoading(false);
-      }
-    };
-
     load();
-
-    return () => {
-      active = false;
-    };
   }, []);
 
   useEffect(() => {
-    if (!hasLoaded.current) return;
-    if (skipNextSave.current) {
-      skipNextSave.current = false;
-      return;
-    }
-
-    setSaveState('pending');
-    const timer = window.setTimeout(async () => {
-      try {
-        setSaveState('saving');
-        await trussStudioApi.save(events);
-        setSaveState('saved');
-        setError(null);
-      } catch (err) {
-        setSaveState('error');
-        setError(err instanceof Error ? err.message : '儲存 Truss 工作台失敗');
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (inFlightCount.current > 0) {
+        e.preventDefault();
+        e.returnValue = '';
       }
-    }, 1000);
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
 
-    return () => window.clearTimeout(timer);
-  }, [events]);
+  const runMutation = <T,>(
+    label: string,
+    fn: () => Promise<T>,
+    retry?: () => void,
+  ): Promise<T> => {
+    if (!hasLoaded || inFlightCount.current > 0) {
+      return Promise.reject(new Error(!hasLoaded ? '請先完成載入再編輯' : '請等候目前操作儲存完成'));
+    }
+    const opId = ++opSeq.current;
+    inFlightCount.current += 1;
+    setSaveState('saving');
+    setError(null);
+    setRetryAction(null);
+
+    const task = async (): Promise<T> => {
+      try {
+        const result = await fn();
+        if (opId === opSeq.current) {
+          setSaveState('saved');
+          setError(null);
+          setRetryAction(null);
+          setTimeout(() => {
+            if (opSeq.current === opId) {
+              setSaveState(prev => (prev === 'saved' ? 'idle' : prev));
+            }
+          }, 3000);
+        }
+        return result;
+      } catch (err) {
+        if (opId === opSeq.current) {
+          setSaveState('error');
+          const msg = err instanceof Error ? err.message : `${label}失敗`;
+          setError(msg);
+          if (retry) {
+            setRetryAction(() => retry);
+          }
+        }
+        throw err;
+      } finally {
+        inFlightCount.current = Math.max(0, inFlightCount.current - 1);
+      }
+    };
+
+    const execution = task();
+    pendingMutation.current = execution;
+    return execution;
+  };
+
+  const handleBack = async () => {
+    if (inFlightCount.current > 0) {
+      setNavigatingBack(true);
+      try {
+        await pendingMutation.current;
+      } catch {
+        return;
+      } finally {
+        setNavigatingBack(false);
+      }
+    }
+    else if ((creatingEvent && newEventName.trim()) || renamingEventId) {
+      if (!confirm('尚有未儲存的場次名稱，確定放棄並返回首頁？')) return;
+    }
+    onBack();
+  };
+
+  const handleBackToEvents = async () => {
+    if (inFlightCount.current > 0) {
+      setNavigatingBack(true);
+      try {
+        await pendingMutation.current;
+      } catch {
+        return;
+      } finally {
+        setNavigatingBack(false);
+      }
+    }
+    setSelectedEventId(null);
+    setBuilder(null);
+  };
 
   useEffect(() => {
     if (creatingEvent) newEventInputRef.current?.focus();
@@ -144,7 +218,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
     () => events.find(event => event.id === selectedEventId),
     [events, selectedEventId],
   );
-  const structures = selectedEvent?.structures ?? [];
+  const structures = selectedEvent?.structures ?? EMPTY_STRUCTURES;
 
   const totalBom = useMemo(() => (
     mergeTrussBoms(structures.map(entry => calculateTrussBom(entry.config, entry.config.quantity)))
@@ -156,59 +230,50 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
 
   const saveText = {
     idle: '',
-    pending: '待儲存',
     saving: '儲存中...',
     saved: '已儲存',
     error: '儲存失敗',
   }[saveState];
+  const busy = loading || saveState === 'saving' || navigatingBack;
+  const mutationDisabled = busy || !hasLoaded;
 
-  const updateEvent = (
-    eventId: string,
-    updater: (event: TrussStudioEvent) => TrussStudioEvent,
-  ) => {
-    setEvents(prev => prev.map(event => (
-      event.id === eventId ? updater(event) : event
-    )));
-  };
-
-  const updateSelectedEventStructures = (
-    updater: (structures: TrussStudioEntry[]) => TrussStudioEntry[],
-  ) => {
-    if (!selectedEventId) return;
-    const now = new Date().toISOString();
-    updateEvent(selectedEventId, event => ({
-      ...event,
-      updated_at: now,
-      structures: updater(event.structures),
-    }));
-  };
-
-  const handleCreateEvent = () => {
-    const name = newEventName.trim();
+  const handleCreateEvent = async () => {
+    const name = newEventNameRef.current.trim();
     if (!name) return;
 
-    const now = new Date().toISOString();
-    const event: TrussStudioEvent = {
-      id: crypto.randomUUID(),
-      name,
-      created_at: now,
-      updated_at: now,
-      structures: [],
-    };
-
-    setEvents(prev => [event, ...prev]);
-    setSelectedEventId(event.id);
-    setCreatingEvent(false);
-    setNewEventName('');
+    try {
+      const newEvent = await runMutation(
+        '建立場次',
+        () => trussStudioApi.createEvent(name),
+        () => { handleCreateEvent(); },
+      );
+      setEvents(prev => [...prev, newEvent]);
+      setSelectedEventId(newEvent.id);
+      setCreatingEvent(false);
+      setNewEventName('');
+    } catch {
+      // Retains newEventName and creatingEvent state for retry
+    }
   };
 
-  const handleDeleteEvent = (e: React.MouseEvent, eventId: string) => {
-    e.stopPropagation();
+  const handleDeleteEvent = async (eventId: string) => {
     if (!confirm('確定要刪除這個場次？場次內的 Truss 結構也會刪除。')) return;
-    setEvents(prev => prev.filter(event => event.id !== eventId));
-    if (selectedEventId === eventId) {
-      setSelectedEventId(null);
-      setBuilder(null);
+
+    try {
+      await runMutation(
+        '刪除場次',
+        () => trussStudioApi.deleteEvent(eventId),
+        () => {
+          handleDeleteEvent(eventId);
+        },
+      );
+      setEvents(prev => prev.filter(event => event.id !== eventId));
+      if (selectedEventId === eventId) {
+        setSelectedEventId(null);
+        setBuilder(null);
+      }
+    } catch {
+      // Handled in runMutation with retry action
     }
   };
 
@@ -219,73 +284,142 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
   };
 
   const cancelRenameEvent = () => {
+    isRenamingRef.current = false;
     setRenamingEventId(null);
     setRenameValue('');
   };
 
-  const commitRenameEvent = (eventId: string) => {
-    const name = renameValue.trim();
+  const commitRenameEvent = async (eventId: string) => {
+    if (isRenamingRef.current) return;
+    const name = renameValueRef.current.trim();
     const current = events.find(event => event.id === eventId);
     if (!current || !name || name === current.name) {
       cancelRenameEvent();
       return;
     }
 
-    updateEvent(eventId, event => ({
-      ...event,
-      name,
-      updated_at: new Date().toISOString(),
-    }));
-    cancelRenameEvent();
+    isRenamingRef.current = true;
+    try {
+      const updated = await runMutation(
+        '場次改名',
+        () => trussStudioApi.renameEvent(eventId, name),
+        () => { commitRenameEvent(eventId); },
+      );
+      setEvents(prev => prev.map(event => (event.id === eventId ? updated : event)));
+      cancelRenameEvent();
+    } catch {
+      // Retains renamingEventId and renameValue for retry
+    } finally {
+      isRenamingRef.current = false;
+    }
   };
 
-  const handleSubmit = (config: TrussStructureConfig) => {
-    const now = new Date().toISOString();
+  const handleSubmit = async (config: TrussStructureConfig): Promise<void> => {
+    if (!selectedEventId) {
+      const err = new Error('尚未選擇場次');
+      setError(err.message);
+      setSaveState('error');
+      throw err;
+    }
+
     const cleanConfig = sanitizeConfig(config);
 
     if (builder?.mode === 'edit') {
-      updateSelectedEventStructures(prev => prev.map(entry => (
-        entry.id === builder.id
-          ? { ...entry, config: cleanConfig, updated_at: now }
-          : entry
-      )));
+      const structureId = builder.id;
+      const existing = structures.find(entry => entry.id === structureId);
+      if (!existing) {
+        const err = new Error('找不到欲編輯的 Truss 結構，該結構可能已被刪除');
+        setError(err.message);
+        setSaveState('error');
+        throw err;
+      }
+
+      const updated = await runMutation(
+        '儲存結構',
+        () => trussStudioApi.updateStructure(selectedEventId, structureId, cleanConfig),
+      );
+
+      setEvents(prev => prev.map(ev => {
+        if (ev.id !== selectedEventId) return ev;
+        return {
+          ...ev,
+          updated_at: updated.updated_at,
+          structures: ev.structures.map(entry => (entry.id === structureId ? updated : entry)),
+        };
+      }));
       return;
     }
 
-    updateSelectedEventStructures(prev => ([
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        config: cleanConfig,
-        created_at: now,
-        updated_at: now,
-      },
-    ]));
+    const created = await runMutation(
+      '新增結構',
+      () => trussStudioApi.createStructure(selectedEventId, cleanConfig),
+    );
+
+    setEvents(prev => prev.map(ev => {
+      if (ev.id !== selectedEventId) return ev;
+      return {
+        ...ev,
+        updated_at: created.updated_at,
+        structures: [...ev.structures, created],
+      };
+    }));
   };
 
-  const handleDuplicate = (entry: TrussStudioEntry) => {
-    const now = new Date().toISOString();
-    const copy: TrussStudioEntry = {
-      id: crypto.randomUUID(),
-      config: sanitizeConfig(entry.config),
-      created_at: now,
-      updated_at: now,
-    };
+  const handleDuplicate = async (entry: TrussStudioEntry) => {
+    if (!selectedEventId) return;
 
-    updateSelectedEventStructures(prev => {
-      const index = prev.findIndex(item => item.id === entry.id);
-      if (index === -1) return [...prev, copy];
-      return [
-        ...prev.slice(0, index + 1),
-        copy,
-        ...prev.slice(index + 1),
-      ];
-    });
+    const cleanConfig = sanitizeConfig(entry.config);
+
+    try {
+      const duplicated = await runMutation(
+        '複製結構',
+        () => trussStudioApi.createStructure(selectedEventId, cleanConfig, entry.id),
+        () => { handleDuplicate(entry); },
+      );
+
+      setEvents(prev => prev.map(ev => {
+        if (ev.id !== selectedEventId) return ev;
+        const index = ev.structures.findIndex(s => s.id === entry.id);
+        const nextStructures = index === -1
+          ? [...ev.structures, duplicated]
+          : [
+              ...ev.structures.slice(0, index + 1),
+              duplicated,
+              ...ev.structures.slice(index + 1),
+            ];
+        return {
+          ...ev,
+          updated_at: duplicated.updated_at,
+          structures: nextStructures,
+        };
+      }));
+    } catch {
+      // Handled in runMutation with retry action
+    }
   };
 
-  const handleDelete = (entry: TrussStudioEntry) => {
+  const handleDelete = async (entry: TrussStudioEntry) => {
+    if (!selectedEventId) return;
     if (!confirm('確定要刪除這個 Truss 結構？')) return;
-    updateSelectedEventStructures(prev => prev.filter(item => item.id !== entry.id));
+
+    try {
+      await runMutation(
+        '刪除結構',
+        () => trussStudioApi.deleteStructure(selectedEventId, entry.id),
+        () => { handleDelete(entry); },
+      );
+
+      setEvents(prev => prev.map(ev => {
+        if (ev.id !== selectedEventId) return ev;
+        return {
+          ...ev,
+          updated_at: new Date().toISOString(),
+          structures: ev.structures.filter(s => s.id !== entry.id),
+        };
+      }));
+    } catch {
+      // Handled in runMutation with retry action
+    }
   };
 
   const getDownloadFilename = (entry: TrussStudioEntry) => {
@@ -319,9 +453,10 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <button
-              onClick={onBack}
-              className="w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 flex items-center justify-center"
-              title="返回首頁"
+              onClick={handleBack}
+              disabled={navigatingBack}
+              className="w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 flex items-center justify-center disabled:opacity-50"
+              title={navigatingBack ? '儲存中...' : '返回首頁'}
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
@@ -337,8 +472,22 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
       </header>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl card-animate">
-          {error}
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl card-animate flex items-center justify-between gap-3">
+          <span>{error}</span>
+          {retryAction && (
+            <button
+              disabled={busy}
+              onClick={() => {
+                const retry = retryAction;
+                setRetryAction(null);
+                setError(null);
+                retry();
+              }}
+              className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-md transition-colors shrink-0"
+            >
+              重試
+            </button>
+          )}
         </div>
       )}
 
@@ -349,6 +498,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
               <p className="text-sm font-medium text-slate-600">新場次名稱</p>
               <input
                 ref={newEventInputRef}
+                disabled={mutationDisabled}
                 value={newEventName}
                 onChange={e => setNewEventName(e.target.value)}
                 onKeyDown={e => {
@@ -364,11 +514,13 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
               <div className="flex gap-2">
                 <button
                   onClick={handleCreateEvent}
+                  disabled={mutationDisabled}
                   className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
                 >
                   建立
                 </button>
                 <button
+                  disabled={mutationDisabled}
                   onClick={() => {
                     setCreatingEvent(false);
                     setNewEventName('');
@@ -382,6 +534,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
           ) : (
             <button
               onClick={() => setCreatingEvent(true)}
+              disabled={mutationDisabled}
               className="new-card w-full h-full min-h-[180px] flex flex-col items-center justify-center gap-3 p-6"
             >
               <div className="plus-ring w-12 h-12 rounded-full border-2 border-blue-500/30 flex items-center justify-center">
@@ -415,7 +568,9 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
           <div key={event.id} className="card-animate" style={stagger(i + 1)}>
             <div
               className="scene-card"
-              onClick={() => setSelectedEventId(event.id)}
+              onClick={() => {
+                if (!mutationDisabled && !renamingEventId) setSelectedEventId(event.id);
+              }}
             >
               <div className="h-28 bg-gradient-to-br from-slate-50 to-slate-100 overflow-hidden relative">
                 <div className="card-thumb w-full h-full flex items-center justify-center">
@@ -435,6 +590,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                   {renamingEventId === event.id ? (
                     <input
                       ref={renameInputRef}
+                      disabled={mutationDisabled}
                       value={renameValue}
                       onClick={e => e.stopPropagation()}
                       onChange={e => setRenameValue(e.target.value)}
@@ -449,6 +605,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                     <div className="flex items-center gap-1.5 min-w-0">
                       <h3 className="text-sm font-medium text-slate-700 truncate">{event.name}</h3>
                       <button
+                        disabled={mutationDisabled}
                         onClick={(e) => startRenameEvent(e, event)}
                         className="shrink-0 p-1 rounded-md text-slate-300 hover:bg-slate-100 hover:text-slate-600"
                         title="重新命名"
@@ -465,7 +622,11 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                 </div>
                 <div className="flex items-center gap-1 ml-2">
                   <button
-                    onClick={(e) => handleDeleteEvent(e, event.id)}
+                    disabled={mutationDisabled}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteEvent(event.id);
+                    }}
                     className="delete-btn p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
                     title="刪除"
                   >
@@ -501,12 +662,10 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3 min-w-0">
             <button
-              onClick={() => {
-                setSelectedEventId(null);
-                setBuilder(null);
-              }}
-              className="w-9 h-9 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 flex items-center justify-center"
-              title="返回場次列表"
+              onClick={handleBackToEvents}
+              disabled={navigatingBack}
+              className="w-9 h-9 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 flex items-center justify-center disabled:opacity-50"
+              title={navigatingBack ? '儲存中...' : '返回場次列表'}
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
@@ -522,6 +681,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
             {saveBadge}
             <button
               onClick={() => setBuilder({ mode: 'new' })}
+              disabled={mutationDisabled}
               className="h-9 px-3 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 flex items-center gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -548,8 +708,22 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
       </header>
 
       {error && (
-        <div className="truss-no-print mb-5 p-4 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg">
-          {error}
+        <div className="truss-no-print mb-5 p-4 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg flex items-center justify-between gap-3">
+          <span>{error}</span>
+          {retryAction && (
+            <button
+              disabled={busy}
+              onClick={() => {
+                const retry = retryAction;
+                setRetryAction(null);
+                setError(null);
+                retry();
+              }}
+              className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-md transition-colors shrink-0"
+            >
+              重試
+            </button>
+          )}
         </div>
       )}
 
@@ -562,6 +736,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
           <p className="text-xs text-slate-400 mt-1 mb-5">新增第一個結構後，這裡會顯示 2D 結構圖與 BOM。</p>
           <button
             onClick={() => setBuilder({ mode: 'new' })}
+            disabled={mutationDisabled}
             className="h-9 px-4 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 inline-flex items-center gap-1.5"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -582,6 +757,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                 <>
                   <button
                     onClick={() => setBuilder({ mode: 'edit', id: entry.id })}
+                    disabled={mutationDisabled}
                     className="h-8 px-2.5 rounded-lg bg-white border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 flex items-center gap-1.5"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
@@ -589,6 +765,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                   </button>
                   <button
                     onClick={() => handleDuplicate(entry)}
+                    disabled={mutationDisabled}
                     className="h-8 px-2.5 rounded-lg bg-white border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 flex items-center gap-1.5"
                   >
                     <Copy className="w-3.5 h-3.5" />
@@ -596,6 +773,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                   </button>
                   <button
                     onClick={() => handleDelete(entry)}
+                    disabled={mutationDisabled}
                     className="h-8 px-2.5 rounded-lg bg-white border border-red-100 text-red-500 text-xs font-semibold hover:bg-red-50 flex items-center gap-1.5"
                   >
                     <Trash2 className="w-3.5 h-3.5" />

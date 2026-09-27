@@ -68,24 +68,26 @@ export interface TrussStructureConfig {
 - `ObjectType` 加 `TRUSS_STRUCTURE`
 - 新檔 `trussConfig.ts`：
   - `TRUSS_SEGMENT_COLORS: Record<TrussSegmentLength, string>`（200 藍 `#4da6e8`、150 綠 `#7ec850`、100 黃 `#f0d040`、50 暗紅 `#8b3a2a`、20 紅 `#d03030`、10 灰 `#999`，可微調接近 Keynote）
-  - `fitSegments(targetCm: number): TrussSegmentLength[]` — greedy 由大到小配段（200→150→100→50→20→10），回傳不超過目標的最佳組合；不足/超出時回傳最接近組合並讓 UI 顯示實際外徑
-  - 衍生計算：實際外徑（段長總和 + 對接頭忽略不計）、對接頭數（每根 member 段數-1，另加柱梁交接）、鐵板數（立柱數）
+  - `fitSegments(targetCm: number): TrussSegmentLength[]` — 以 10cm 為格向下配段，最短 10cm；UI 同時顯示實際尺寸。`fitSegmentsForBays` 為每跨準備足夠段材，`splitMemberIntoBays` 保持段材完整及順序，依剩餘長度選擇接近平均值的分界，不把餘料集中到最後一跨。
+  - 現行外徑包含 25cm 轉角件；使用 `getTrussCouplerAllowances` 扣除寬／高餘量後才配段。直線接段不增加長度，也不增加 BOM 的 `couplers`。預設接頭數沿用現行模型；完整口徑見 `docs/API.md`，不是所有插銷／扣件的採購清單。
   - BOM 彙總函式：輸入場景中所有 `TRUSS_STRUCTURE` 物件 → 各長度總數、對接頭、鐵板
 
 ### Step 2 — Truss 建造器 UI（新檔 `components/TrussBuilderModal.tsx`）
 
 - 仿 `AdvancedAddModal` 的 modal 樣式
-- 流程：選 kind（三張小示意圖按鈕）→ 輸入目標 W / H /（D）cm 與標題、座數 → 自動配段
+- 流程：選 kind（七種預設與 CUSTOM）→ 輸入目標 W / H /（D）cm 與標題、座數 → 自動配段；數字欄位允許完整輸入，失焦或 Enter 才提交。
 - 配段結果顯示為可編輯清單（每根 member 一列色塊條，可增刪改單段）
 - 即時 2D 預覽（直接重用 Step 4 的 SVG 元件）+ 實際外徑顯示
-- 「加入場景」→ 以 `createObjectConfig` 模式生成 `TRUSS_STRUCTURE` 物件（quantity N 就放 N 個，間隔 1m）
-- 入口：`AddObjectPanel` 加一個「Truss 結構」按鈕開 modal
-- `PropertiesPanel`：選中 `TRUSS_STRUCTURE` 時顯示「編輯結構」按鈕重開 modal 帶入現值，儲存即 `updateObject`
+- 新增場景結構：quantity N 生成 N 個同群組獨立物件，先顯示放置預覽；點擊場景才提交，Esc 取消，整批僅占一個 undo 步驟。
+- 入口：`AddObjectPanel` 的「Truss 結構」按鈕。
+- `PropertiesPanel` 的「編輯結構」只編輯選中的一座，座數固定 1；儲存後脫離原群組，不改其他座。工作台仍可編輯數量。
+- 水平預設框架檢查左右柱等高、BOX 上下梁等長、多跨每跨有段材；可用不同段材組成相同總長。這些是圖形閉合檢查，不是承重認證。
+- 建造器、結構圖及批次新增視窗開啟時停用場景快捷鍵，避免 Delete／方向鍵／undo 操作到背後場景。
 
 ### Step 3 — 3D 渲染（新檔 `components/models/TrussStructure.tsx`）
 
 - 依 `TrussStructureConfig` 組 3D：每段渲染為方管桁架（重用現有 TRUSS_STRAIGHT 的幾何做法；若現有做法是簡單 box，就做 30cm 見方、四主管+斜撐的 instanced 簡化桁架即可，效能優先）
-- 段與段交界放小黑方塊（對接頭）、柱底放扁黑板（鐵板）
+- 轉角位置放接頭、柱底放鐵板；BOX 的立柱從底部 25cm 接頭上方開始，2D 與 3D 一致。
 - 提供 schematic 上色模式開關（依段長上色）與寫實模式（鋁銀色），預設寫實；開關放 PropertiesPanel
 - 接進 `BanquetObjects.tsx` 的 type switch 與 `ObjectWrapper`（可選取、拖移、旋轉、複製、undo/redo 全部沿用既有機制，不要另起爐灶）
 
@@ -121,3 +123,7 @@ export interface TrussStructureConfig {
 - 不新增 runtime 依賴（SVG→PNG 用原生 canvas，不裝 html2canvas 之類）
 - UI 文案繁體中文
 - 不要 git commit，留在 working tree 供 review
+
+## 邏輯回歸驗證
+
+`node_modules/.bin/tsx --test trussConfig.test.ts` 驗證預設轉自訂用料、背景框柱梁連接、附掛高度、多跨配段與自訂深度。互動流程另以實際瀏覽器驗證；維持 `npm run typecheck` 與 `npm run build` 通過。

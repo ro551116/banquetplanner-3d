@@ -43,23 +43,23 @@ export interface TrussStructureConfig {
 ```
 
 `trussConfig.ts` 對應更新：
-- `getTrussDimensions`：各 kind 的 W（TOWER=30、L/T=梁總長、MULTI_BAY=頂梁長、其餘=beam 長）
+- `getTrussDimensions`：依各型式加上 25cm 轉角件所占寬高；L／T 另考慮有效附掛高度。具體公式以 `docs/API.md` 的尺寸計算為準。
 - `calculateTrussBom`：
   - 柱數：TOWER/L/T=1、GOALPOST/BACKDROP/BOX=2（legsRight 有值時左右分開算）、MULTI_BAY=bayCount+1
   - 梁：各 kind 對應 beam/beamRight/bottomBeam/depthMember
-  - 柱梁交接對接頭：GOALPOST/BACKDROP=2、BOX=4、L=1、T=2、MULTI_BAY=bayCount+1
+  - 現行接頭模型：GOALPOST=2、BACKDROP=4（保留既有側撐計數）、BOX=4、L=1、T=1、MULTI_BAY=bayCount+1。直線接段不計入；BACKDROP 轉 CUSTOM 的歷史口徑差異由建造器提示，不自行推定採購規格。
   - 鐵板 = 柱數
 - `formatTrussTitle`：suffix 對應（口字TRUSS / L型TRUSS / T型TRUSS / 連排ㄇTRUSS×N跨）
 - `createDefaultTrussConfig` 支援新 kind 預設值
 
 ### B2. 建造器（`TrussBuilderModal.tsx`）
 
-- kind 選擇器從 3 顆按鈕擴成 7 顆（小示意圖示意即可，CSS 畫或 SVG inline）
+- kind 選擇器提供七種預設與第八種 CUSTOM；後者的座標及轉換契約見 `docs/PLAN-truss-custom.md`。
 - 依 kind 顯示對應欄位：
-  - BOX：目標 W/H；底梁預設複製頂梁配段，可獨立調
+  - BOX：目標外徑 W/H；調整 W 同步更新上下梁，仍可手動調整底梁段材，但送出前要求上下梁總長相同。
   - LSHAPE/TSHAPE：目標懸挑長度（T 型左右各一）＋「梁附掛高度」（預設柱頂，可改）
-  - MULTI_BAY：跨數 select(2-6) + 目標總寬 W / 柱高 H
-  - GOALPOST/BACKDROP/BOX：新增「右柱獨立配段」toggle，開啟後多一組 MemberEditor
+  - MULTI_BAY：跨數 select(2–6) + 目標總外寬 W／外高 H；自動配段扣除接頭餘量，為每跨保留段材。
+  - GOALPOST/BACKDROP/BOX：右柱可獨立配段，但送出前要求左右總高相同，避免水平頂梁無法閉合。
 - 既有自動配段、實際外徑、2D 即時預覽全部適用新 kind
 
 ### B3. 2D 結構圖（`TrussDiagram.tsx`）
@@ -68,7 +68,7 @@ export interface TrussStructureConfig {
 - BOX：兩柱 + 頂梁 + 底梁（底梁貼地畫在鐵板上方），四角 Joint
 - LSHAPE：單柱 + 從附掛高度往右的水平梁，柱底鐵板
 - TSHAPE：單柱 + 左右兩水平梁
-- MULTI_BAY：N+1 支柱等距 + 連續頂梁（柱位以梁總長等分），每柱鐵板
+- MULTI_BAY：N+1 支柱 + 分跨頂梁；以完整段材按順序分跨，依剩餘平均長度盡量平衡，不切斷單支段材。柱位累計各跨實際段長與 25cm 接頭間距，不強制等距。
 - legsRight 有值時右柱按右柱配段畫
 - 寬度標註與外徑計算對應更新
 

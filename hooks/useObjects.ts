@@ -1,18 +1,12 @@
 import { useCallback } from 'react';
 import { BanquetObject, ObjectType, HallConfig, StairConfig } from '../types';
-import { INITIAL_OBJECTS, createObjectConfig } from '../constants';
+import { INITIAL_OBJECTS } from '../constants';
 import { generateLayout } from '../services/geminiService';
 import { useHistory } from './useHistory';
 import { cloneTrussConfig } from '../trussConfig';
 
 export function useObjects() {
   const { state: objects, set: setObjects, undo, redo, reset: resetObjects, canUndo, canRedo } = useHistory<BanquetObject[]>(INITIAL_OBJECTS);
-
-  const addObject = useCallback((type: ObjectType, pos?: { x: number; y: number; z: number }) => {
-    const newObj = createObjectConfig(type, pos);
-    setObjects(prev => [...prev, newObj]);
-    return newObj;
-  }, [setObjects]);
 
   const updateObject = useCallback((id: string, updates: Partial<BanquetObject>) => {
     setObjects(prev => prev.map(obj => obj.id === id ? { ...obj, ...updates } : obj));
@@ -107,7 +101,6 @@ export function useObjects() {
     objects,
     setObjects,
     resetObjects,
-    addObject,
     updateObject,
     deleteObject,
     deleteByIds,

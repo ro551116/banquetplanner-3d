@@ -14,13 +14,14 @@
 
 仿照 scenes 的檔案存法，新增單一文件 resource：
 
-- `GET /api/truss-studio` → 回傳 `{ structures: TrussStudioEntry[] }`，檔案不存在時回傳 `{ structures: [] }`
-- `PUT /api/truss-studio` → 整份覆寫存到 `DATA_DIR/truss-studio.json`
+- `GET /api/truss-studio` → 回傳 `{ events: TrussStudioEvent[] }`，場次內有 `structures`。
+- `PUT /api/truss-studio` 保留為外部批次／備份還原介面，驗證結構後整份替換；工作台不使用此介面，避免覆蓋其他分頁或 API 新增的資料。
 - `TrussStudioEntry = { id: string; config: TrussStructureConfig; created_at: string; updated_at: string }`
+- `TrussStudioEvent` 以場次封裝名稱、時間戳與 `structures: TrussStudioEntry[]`；不同場次各自管理結構。
 
 ### Step 2 — Client API（新檔 `services/trussStudioApi.ts`）
 
-- `trussStudioApi.get()` / `trussStudioApi.save(structures)`，比照 `scenesApi` 的 `apiFetch` 寫法
+- `trussStudioApi.get()` 載入；`createEvent`／`renameEvent`／`deleteEvent` 與 `createStructure`／`updateStructure`／`deleteStructure` 對單筆 resource 操作，沿用 `apiFetch`。複製以 `afterStructureId` 保留相鄰順序。
 
 ### Step 3 — 共用結構圖卡片（重構抽取）
 
@@ -35,9 +36,9 @@
 - 全頁版面（非 modal），風格延續 `SceneManager` 的淺色卡片風
 - 頂欄：返回首頁、標題「Truss 工作台」、「新增結構」、「全部 PNG」、「列印」
 - 主體：每個 structure 一張 `TrussCard`（含編輯/複製/刪除 action）+ 底部 `TrussBomSummary`（quantity 直接用 `config.quantity`，不經過 `getTrussGroups`，studio 沒有場景物件概念）
-- 「新增結構」與「編輯」都開既有 `TrussBuilderModal`（傳 `initialConfig` 即可，submit 後寫回 structures 陣列）
+- 「新增結構」與「編輯」開啟 `TrussBuilderModal`；非同步 submit 成功後才關閉。失敗時保留草稿，允許修改後再次儲存。
 - 空狀態：引導文案 + 新增按鈕
-- 持久化：structures 變更後 debounce 1 秒 `trussStudioApi.save()`；進頁時 `get()` 載入
+- 持久化：立即送出單筆 API mutation，一次只執行一筆；儲存中停用重複操作，返回頁面會等候結果。失敗不離頁，保留輸入並提供手動重試；重試使用最新草稿，不重送過期欄位值。初次載入失敗時不可編輯，仍可重試載入。分頁關閉／重整在請求未完成時顯示離開警告。
 - 刪除要 `confirm()` 確認
 
 ### Step 5 — 路由與首頁入口
@@ -59,3 +60,7 @@
 2. 重新整理瀏覽器 → 進工作台 → 結構還在（server 持久化生效）
 3. 編輯結構改寬度 → 圖即時更新；複製 → 多一張；刪除 → 消失
 4. 「全部 PNG」下載成功；場景內的結構圖 modal 行為不變
+5. 建立／儲存後立即返回，必須等到 API 完成；失敗保留畫面與草稿。
+6. 載入失敗可重試；資料尚未載入不可新增，避免以空資料覆蓋舊內容。
+7. 其他分頁或 API 新增的獨立場次／結構，不因本頁儲存而被刪掉。相同紀錄的同時編輯仍是既有 last-write-wins，並非協作鎖定。
+8. 編輯中的結構在遠端被刪除時，顯示 404 儲存失敗，不假裝成功或自動另建。

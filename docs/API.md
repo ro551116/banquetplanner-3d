@@ -294,6 +294,8 @@ Response:
 
 ### 替換完整 Truss Studio
 
+整份 `events` 陣列會被替換，並對所有結構執行 `validateTrussConfig` 驗證。此批次 endpoint 主要供外部工具或備份還原使用；前端工作台則直接調用細粒度之場次與結構 endpoints。
+
 ```bash
 curl -X PUT "$BASE/api/truss-studio" \
   -H "Content-Type: application/json" \
@@ -360,6 +362,8 @@ Response:
 
 ### 新增結構
 
+可選傳入 `afterStructureId` 指定插入位置（複製結構時保持相鄰順序）；未傳入或該結構已不存在時，附加至場次末端。
+
 ```bash
 curl -X POST "$BASE/api/truss-studio/events/event-id/structures" \
   -H "Content-Type: application/json" \
@@ -370,7 +374,8 @@ curl -X POST "$BASE/api/truss-studio/events/event-id/structures" \
       "quantity": 1,
       "legs": { "segments": [200, 150, 20] },
       "beam": { "segments": [200, 200, 150] }
-    }
+    },
+    "afterStructureId": "structure-id"
   }'
 ```
 
@@ -512,7 +517,7 @@ interface TrussStructureConfig {
 
 ### `CUSTOM` 自訂桿件
 
-座標單位是公分。2D 正視圖座標系為 X 向右、Y 向上，原點是結構左下；`zCm` 只用於 `DEPTH` 桿，代表向後的深度座標。3D 模型會以 bounding box 中心對齊物件原點。
+座標單位是公分。X 向右、Y 向上、Z 向後；所有方向的桿件都可指定 `zCm`，用來描述不同深度平面。3D 模型以 X/Z bounding box 中心對齊物件原點，最低 Y 對齊底部。
 
 | 欄位 | 說明 |
 | --- | --- |
@@ -524,14 +529,17 @@ interface TrussStructureConfig {
 | `direction` | 只對 `HORIZONTAL` 有效；`1` 向右，`-1` 向左；省略視為 `1` |
 | `basePlate` | 只對 `VERTICAL` 有效；省略時 `origin.yCm === 0` 會自動算一片鐵板 |
 
-CUSTOM 的 BOM 會加總所有 member 的段數、每根 member 內部段接點、member 間自動偵測的接點，以及符合規則的鐵板。member 間接點規則：任一 member 端點與另一 member 端點或桿身距離 <= 2cm 時算 1 個對接頭，同一點去重。
+CUSTOM 的 BOM 加總所有 member 段材及符合規則的鐵板；`couplers` 不計直線分段接縫。任一 member 端點與另一 member 端點／桿身距離 <= 2cm 時形成接點；同位置去重，至少包含兩種軸向才計一個接頭。
+
+預設型式的現行接頭數為 TOWER=0、GOALPOST=2、BACKDROP=4、BOX=4、LSHAPE=1、TSHAPE=1、MULTI_BAY=bayCount+1，再乘上座數。BACKDROP 的既有側撐規則與 CUSTOM 不同：轉為兩個三向交會節點後會變成每座 2 個接頭。建造器會在轉換前明示並允許取消；此差異需依實際供料規格確認，不能把模型 BOM 視為完整扣件／插銷或承重清單。
 
 ### 尺寸計算
 
-- 高度：`legs.segments` 總和，若有 `legsRight` 則取左右柱較高者；L/T 型也會納入 `beamAttachCm`
-- 寬度：一般為 `beam.segments` 總和；T 型為 `beam + beamRight`；Tower 固定顯示 30cm 寬
-- 深度：只有 `BACKDROP` 使用 `depthMember.segments` 總和
-- CUSTOM：所有 member 起點與終點形成的 bounding box；有 `DEPTH` member 時才顯示深度
+- 轉角件長度為 25cm。GOALPOST／BACKDROP／BOX 寬度為頂梁段長 + 50cm；MULTI_BAY 加 `(bayCount+1)×25cm`；L 加 25cm；T 為左右梁合計 + 25cm；TOWER 標稱寬度 30cm。
+- GOALPOST／BACKDROP／MULTI_BAY 高度為柱長 + 25cm，BOX 加 50cm，TOWER 使用柱長。有獨立右柱的預設型式取較高柱；建造器會另外檢查水平框架是否等高閉合。
+- L／T 附掛高度限制在 0 至柱長之間；總高取柱長與 `有效附掛高度 + 25cm` 的較大者，低附掛不額外增加柱頂高度。
+- BACKDROP 深度為 `depthMember.segments` 總和。
+- CUSTOM 使用所有 member 端點的 bounding box，標示「座標範圍」而非含接頭外徑；有 DEPTH 桿或不同 Z 平面時顯示深度。預設轉 CUSTOM 保留段材並讓端點接合，不保留預設型式的接頭間距。
 
 ## 結構圖 SVG
 

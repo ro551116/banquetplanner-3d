@@ -1,109 +1,159 @@
 import React, { useMemo } from 'react';
 import * as THREE from 'three';
-import { BanquetChair, EdgeOutline, Highlight, TableClothMaterial } from './shared';
+import { BanquetChairs, Highlight, TableClothMaterial } from './shared';
+import { getRoundTableClothGeometry, getRectTableClothGeometry } from './cloth';
 
-export const RoundTable = ({ color, customSize = 6, tableCloth = 'linen', selected, isEditMode }: any) => {
+export interface RoundTableProps {
+  color: string;
+  customSize?: number;
+  tableCloth?: string;
+  selected?: boolean;
+  isEditMode?: boolean;
+}
+
+export const RoundTable = ({
+  color,
+  customSize = 6,
+  tableCloth = 'linen',
+  selected,
+  isEditMode,
+}: RoundTableProps) => {
   const config = useMemo(() => {
-    const map: Record<number, { r: number, chairs: number }> = {
+    const map: Record<number, { r: number; chairs: number }> = {
       4: { r: 0.6, chairs: 5 },
       5: { r: 0.75, chairs: 8 },
       6: { r: 0.9, chairs: 10 },
       7: { r: 1.05, chairs: 10 },
-      8: { r: 1.2, chairs: 12 }
+      8: { r: 1.2, chairs: 12 },
     };
     return map[customSize] || map[6];
   }, [customSize]);
 
-  const edgeColor = useMemo(() => new THREE.Color(color).offsetHSL(0, 0.05, -0.15).getStyle(), [color]);
+  // Procedural draped tablecloth with soft undulating skirt folds and rounded rim
+  const clothGeometry = useMemo(() => {
+    return getRoundTableClothGeometry(config.r, 0.75);
+  }, [config.r]);
+
+  // Centerpiece charger accent colors
+  const plateColor = useMemo(
+    () => new THREE.Color(color).offsetHSL(0.08, 0.2, 0.25).getStyle(),
+    [color]
+  );
+
+  // Instanced chair placements: +Z is back, seats face inward towards table center
+  const chairPlacements = useMemo(() => {
+    const placements: Array<{ position: [number, number, number]; rotation: number }> = [];
+    const chairDistance = config.r + 0.44;
+    for (let i = 0; i < config.chairs; i++) {
+      const angle = (i / config.chairs) * Math.PI * 2;
+      const x = Math.sin(angle) * chairDistance;
+      const z = Math.cos(angle) * chairDistance;
+      // Facing table center from (x, z): local -Z points inward when rotation = angle
+      placements.push({
+        position: [x, 0, z],
+        rotation: angle,
+      });
+    }
+    return placements;
+  }, [config.r, config.chairs]);
 
   return (
     <group>
-      {/* Main tablecloth body */}
-      <mesh position={[0, 0.375, 0]} castShadow receiveShadow>
-        <cylinderGeometry args={[config.r, config.r, 0.75, 32]} />
+      {/* Procedural draped tablecloth */}
+      <mesh geometry={clothGeometry} castShadow receiveShadow>
         <TableClothMaterial color={color} tableCloth={tableCloth} />
         {selected && isEditMode && <Highlight />}
-        <EdgeOutline />
-      </mesh>
-      {/* Tablecloth rim — darker ring at bottom edge */}
-      <mesh position={[0, 0.01, 0]}>
-        <cylinderGeometry args={[config.r + 0.01, config.r + 0.01, 0.02, 32]} />
-        <meshStandardMaterial color={edgeColor} roughness={0.8} />
-      </mesh>
-      {/* Table Top — cloth surface continuation */}
-      <mesh position={[0, 0.76, 0]} receiveShadow>
-         <cylinderGeometry args={[config.r - 0.02, config.r - 0.02, 0.01, 32]} />
-         <TableClothMaterial color={color} tableCloth={tableCloth} />
-         <EdgeOutline />
-      </mesh>
-      {/* Centerpiece circle */}
-      <mesh position={[0, 0.77, 0]}>
-         <cylinderGeometry args={[config.r * 0.35, config.r * 0.35, 0.005, 32]} />
-         <meshStandardMaterial color="#c9a030" metalness={0.6} roughness={0.3} />
       </mesh>
 
-      {/* Chairs */}
-      {Array.from({ length: config.chairs }).map((_, i) => {
-        const angle = (i / config.chairs) * Math.PI * 2;
-        return (
-          <group key={i} rotation={[0, -angle, 0]}>
-            <group position={[0, 0, config.r + 0.45]}>
-              <BanquetChair />
-            </group>
-          </group>
-        );
-      })}
+      {/* Centerpiece charger plate with metallic rim */}
+      <group position={[0, 0.752, 0]}>
+        <mesh receiveShadow>
+          <cylinderGeometry args={[config.r * 0.32, config.r * 0.34, 0.005, 32]} />
+          <meshStandardMaterial color="#c9a030" metalness={0.82} roughness={0.22} />
+        </mesh>
+        {/* Inner porcelain / lacquer inlay */}
+        <mesh position={[0, 0.003, 0]} receiveShadow>
+          <cylinderGeometry args={[config.r * 0.26, config.r * 0.26, 0.003, 32]} />
+          <meshStandardMaterial color={plateColor} metalness={0.15} roughness={0.35} />
+        </mesh>
+      </group>
+
+      {/* Instanced chairs around table */}
+      <BanquetChairs placements={chairPlacements} />
     </group>
   );
 };
 
-export const RectTable = ({ color, customSize = 6, tableCloth = 'linen', selected, isEditMode }: any) => {
+export interface RectTableProps {
+  color: string;
+  customSize?: number;
+  tableCloth?: string;
+  selected?: boolean;
+  isEditMode?: boolean;
+}
+
+export const RectTable = ({
+  color,
+  customSize = 6,
+  tableCloth = 'linen',
+  selected,
+  isEditMode,
+}: RectTableProps) => {
   const config = useMemo(() => {
-    const map: Record<number, { w: number, chairs: number }> = {
+    const map: Record<number, { w: number; chairs: number }> = {
       6: { w: 1.8, chairs: 3 },
       8: { w: 2.4, chairs: 4 },
     };
     return map[customSize] || map[6];
   }, [customSize]);
 
-  const edgeColor = useMemo(() => new THREE.Color(color).offsetHSL(0, 0.05, -0.15).getStyle(), [color]);
+  const clothGeometry = useMemo(() => {
+    return getRectTableClothGeometry(config.w, 0.75, 0.75);
+  }, [config.w]);
 
-  const chairPositions = useMemo(() => {
-    const positions: number[] = [];
+  const runnerColor = useMemo(
+    () => new THREE.Color(color).offsetHSL(0, 0.08, -0.16).getStyle(),
+    [color]
+  );
+
+  // Instanced chair placements on front and back sides
+  const chairPlacements = useMemo(() => {
+    const placements: Array<{ position: [number, number, number]; rotation: number }> = [];
     const spacing = config.w / (config.chairs + 1);
+    const zOffset = 0.58;
+
     for (let i = 1; i <= config.chairs; i++) {
-      positions.push(-config.w / 2 + spacing * i);
+      const x = -config.w / 2 + spacing * i;
+      // Front chairs (Z > 0): face -Z towards table (rotation = 0)
+      placements.push({
+        position: [x, 0, zOffset],
+        rotation: 0,
+      });
+      // Back chairs (Z < 0): face +Z towards table (rotation = Math.PI)
+      placements.push({
+        position: [x, 0, -zOffset],
+        rotation: Math.PI,
+      });
     }
-    return positions;
-  }, [config]);
+    return placements;
+  }, [config.w, config.chairs]);
 
   return (
     <group>
-      {/* Main tablecloth body */}
-      <mesh position={[0, 0.375, 0]} castShadow receiveShadow>
-        <boxGeometry args={[config.w, 0.75, 0.75]} />
+      {/* Procedural draped tablecloth with corner folds and box pleats */}
+      <mesh geometry={clothGeometry} castShadow receiveShadow>
         <TableClothMaterial color={color} tableCloth={tableCloth} />
         {selected && isEditMode && <Highlight />}
-        <EdgeOutline />
       </mesh>
-      {/* Tablecloth bottom trim */}
-      <mesh position={[0, 0.01, 0]}>
-        <boxGeometry args={[config.w + 0.02, 0.02, 0.77]} />
-        <meshStandardMaterial color={edgeColor} roughness={0.8} />
+
+      {/* Table runner accent */}
+      <mesh position={[0, 0.752, 0]} receiveShadow>
+        <boxGeometry args={[config.w, 0.004, 0.32]} />
+        <meshStandardMaterial color={runnerColor} roughness={0.65} metalness={0.05} />
       </mesh>
-      {/* Table top — cloth surface */}
-      <mesh position={[0, 0.76, 0]} receiveShadow>
-        <boxGeometry args={[config.w - 0.04, 0.01, 0.71]} />
-        <TableClothMaterial color={color} tableCloth={tableCloth} />
-        <EdgeOutline />
-      </mesh>
-      {/* Chairs: config.chairs on each side */}
-      {chairPositions.map((x, i) => (
-        <React.Fragment key={i}>
-           <group position={[x, 0, 0.6]}><BanquetChair /></group>
-           <group position={[x, 0, -0.6]} rotation={[0, Math.PI, 0]}><BanquetChair /></group>
-        </React.Fragment>
-      ))}
+
+      {/* Instanced chairs on both sides */}
+      <BanquetChairs placements={chairPlacements} />
     </group>
   );
 };

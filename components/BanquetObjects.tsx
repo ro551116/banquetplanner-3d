@@ -49,7 +49,7 @@ export const BanquetObjectModel: React.FC<BanquetModelProps> = (props) => {
     content = <Stage width={props.customWidth} depth={props.customDepth} height={props.customHeight} hasBackdrop={props.hasBackdrop} stairs={props.stairs} {...props} />;
   } else if (type === ObjectType.RED_CARPET) {
     content = <RedCarpet width={props.customWidth} depth={props.customDepth} {...props} />;
-  } else if (type === ObjectType.COCKTAIL_TABLE || type === ObjectType.PODIUM || type === ObjectType.DANCE_FLOOR || type === ObjectType.PROJECTION_SCREEN || type === ObjectType.LED_WALL || type === ObjectType.RECEPTION_DESK) {
+  } else if (type === ObjectType.COCKTAIL_TABLE || type === ObjectType.PODIUM || type === ObjectType.DANCE_FLOOR || type === ObjectType.PROJECTION_SCREEN || type === ObjectType.LED_WALL || type === ObjectType.RECEPTION_DESK || type === ObjectType.DECOR) {
     content = <Venue type={type} customWidth={props.customWidth} customDepth={props.customDepth} customHeight={props.customHeight} tableCloth={props.tableCloth} {...props} />;
   } else if (type === ObjectType.TRUSS_STRUCTURE && props.trussStructure) {
     content = <TrussStructureModel config={props.trussStructure} selected={props.selected} isEditMode={props.isEditMode} schematicColors={props.trussSchematicColors} color={props.color} />;

@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import { BanquetObject, ObjectType, HallConfig, TableCloth } from './types';
 import { createDefaultTrussConfig } from './trussConfig';
 
@@ -69,7 +68,7 @@ export const INITIAL_OBJECTS: BanquetObject[] = [
   {
     id: '2',
     type: ObjectType.SPEAKER_15,
-    position: { x: -3, y: 0, z: -7 },
+    position: { x: -5, y: 0, z: -7 },
     rotation: { x: 0, y: 0.5, z: 0 },
     scale: { x: 1, y: 1, z: 1 },
     color: '#52525b',
@@ -79,7 +78,7 @@ export const INITIAL_OBJECTS: BanquetObject[] = [
   {
     id: '3',
     type: ObjectType.SPEAKER_15,
-    position: { x: 3, y: 0, z: -7 },
+    position: { x: 5, y: 0, z: -7 },
     rotation: { x: 0, y: -0.5, z: 0 },
     scale: { x: 1, y: 1, z: 1 },
     color: '#52525b',
@@ -112,11 +111,11 @@ export const TABLE_PRESETS = [
 ];
 
 export const PRESET_VIEWS = [
-  { name: '全景 (Overview)', pos: new THREE.Vector3(12, 12, 12), target: new THREE.Vector3(0, 0, 0) },
-  { name: '俯視 (Top)', pos: new THREE.Vector3(0, 22, 0), target: new THREE.Vector3(0, 0, 0) },
-  { name: '舞台 (Stage)', pos: new THREE.Vector3(0, 2, 5), target: new THREE.Vector3(0, 1, -8) },
-  { name: '側面 (Side)', pos: new THREE.Vector3(7, 3, -2), target: new THREE.Vector3(-5, 1, -2) },
-];
+  { id: 'overview', name: '全景 (Overview)' },
+  { id: 'top',      name: '俯視 (Top)' },
+  { id: 'stage',    name: '舞台 (Stage)' },
+  { id: 'side',     name: '側面 (Side)' },
+] as const;
 
 export const createObjectConfig = (
   type: ObjectType,

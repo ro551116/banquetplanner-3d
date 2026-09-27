@@ -1,490 +1,897 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
+import { RenderSettingsContext } from '../RenderSettings';
 import { ObjectType } from '../../types';
-import { EdgeOutline, Highlight, LightSource, PlateBase, TripodBase } from './shared';
+import { Highlight, LightSource, PlateBase, TripodBase } from './shared';
+import { SoftBox, GrilleMaterial } from './details';
 
-// Translucent beam cone, apex at the lens opening toward +Z
-const BeamCone = ({ color, intensity, radius, length }: { color: string; intensity: number; radius: number; length: number }) => {
+// Module-level shared geometries — lazily initialized singletons (zero GC churn / duplicate allocations)
+let _parLensGeom: THREE.BufferGeometry | null = null;
+function getParLensGeometry(): THREE.BufferGeometry {
+  if (!_parLensGeom) {
+    const geoms: THREE.BufferGeometry[] = [];
+    const baseGeom = new THREE.CircleGeometry(0.018, 14);
+    const leds: [number, number][] = [[0, 0]];
+    const rings = [
+      { count: 6, r: 0.048 },
+      { count: 12, r: 0.096 },
+    ];
+    rings.forEach(({ count, r }, ri) => {
+      for (let i = 0; i < count; i++) {
+        const a = (i / count) * Math.PI * 2 + (ri % 2 ? Math.PI / count : 0);
+        leds.push([Math.cos(a) * r, Math.sin(a) * r]);
+      }
+    });
+
+    leds.forEach(([lx, ly]) => {
+      const g = baseGeom.clone();
+      g.translate(lx, ly, 0);
+      geoms.push(g);
+    });
+    baseGeom.dispose();
+
+    const merged = mergeGeometries(geoms, false);
+    geoms.forEach((g) => g.dispose());
+    _parLensGeom = merged;
+  }
+  return _parLensGeom;
+}
+
+let _washLensGeom: THREE.BufferGeometry | null = null;
+function getWashLensGeometry(): THREE.BufferGeometry {
+  if (!_washLensGeom) {
+    const geoms: THREE.BufferGeometry[] = [];
+    const baseGeom = new THREE.CircleGeometry(0.022, 12);
+    const xs = [-0.10, -0.035, 0.035, 0.10];
+    const ys = [-0.05, 0, 0.05];
+
+    xs.forEach((x) => {
+      ys.forEach((y) => {
+        const g = baseGeom.clone();
+        g.translate(x, y, 0);
+        geoms.push(g);
+      });
+    });
+    baseGeom.dispose();
+
+    const merged = mergeGeometries(geoms, false);
+    geoms.forEach((g) => g.dispose());
+    _washLensGeom = merged;
+  }
+  return _washLensGeom;
+}
+
+let _strobeCellsGeom: THREE.BufferGeometry | null = null;
+function getStrobeCellsGeometry(): THREE.BufferGeometry {
+  if (!_strobeCellsGeom) {
+    const geoms: THREE.BufferGeometry[] = [];
+    const baseGeom = new THREE.CircleGeometry(0.056, 18);
+    const coords: [number, number][] = [
+      [-0.13, 0.055],
+      [0.13, 0.055],
+      [-0.13, -0.055],
+      [0.13, -0.055],
+    ];
+
+    coords.forEach(([cx, cy]) => {
+      const g = baseGeom.clone();
+      g.translate(cx, cy, 0);
+      geoms.push(g);
+    });
+    baseGeom.dispose();
+
+    const merged = mergeGeometries(geoms, false);
+    geoms.forEach((g) => g.dispose());
+    _strobeCellsGeom = merged;
+  }
+  return _strobeCellsGeom;
+}
+
+let panelLightUniformsReady = false;
+
+// A rectangular emitter, not a visible solid standing in for light in the air.
+const PanelLight = ({ color, intensity, width, height }: {
+  color: string;
+  intensity: number;
+  width: number;
+  height: number;
+}) => {
+  const { night } = useContext(RenderSettingsContext);
   if (intensity <= 0) return null;
+  if (!panelLightUniformsReady) {
+    RectAreaLightUniformsLib.init();
+    panelLightUniformsReady = true;
+  }
   return (
-    <mesh position={[0, 0, length / 2]} rotation={[-Math.PI / 2, 0, 0]}>
-      <coneGeometry args={[radius, length, 32, 1, true]} />
-      <meshBasicMaterial
-        color={color}
-        transparent
-        opacity={Math.min(0.18, 0.04 + intensity * 0.035)}
-        depthWrite={false}
-        side={THREE.DoubleSide}
-        toneMapped={false}
-      />
-    </mesh>
+    <rectAreaLight
+      color={color}
+      width={width}
+      height={height}
+      intensity={intensity * (night ? 32 : 24) / (width * height)}
+      rotation={[0, Math.PI, 0]}
+    />
   );
 };
 
-// Slim LED Par Can — 54-bead face, double-bracket floor yoke
-const LedPar = ({ color, intensity, tilt, selected, isEditMode }: any) => {
-  const canR = 0.155;        // front radius
-  const canRBack = 0.135;    // back radius (slim par, near-straight)
-  const canD = 0.13;         // slim body depth
-  const bodyColor = '#1a1a1e';
+// Tour-grade LED Par Can — single merged 19-diode honeycomb lens, double scissor floor yoke
+const LedPar = ({
+  color,
+  intensity,
+  tilt,
+  selected,
+  isEditMode,
+}: {
+  color: string;
+  intensity: number;
+  tilt: number;
+  selected?: boolean;
+  isEditMode?: boolean;
+}) => {
+  const canR = 0.155; // front radius
+  const canRBack = 0.135; // back radius
+  const canD = 0.14; // slim body depth
+  const bodyColor = '#1c1c22';
   const yokeColor = '#141418';
-  const pivotY = 0.2;        // pivot height from ground
-  const yokeT = 0.025;       // yoke arm thickness
-
-  // 54 LED positions: 1+6+12+18+17
-  const leds: [number, number][] = [[0, 0]];
-  const rings = [
-    { count: 6, r: 0.034 },
-    { count: 12, r: 0.063 },
-    { count: 18, r: 0.092 },
-    { count: 17, r: 0.118 },
-  ];
-  rings.forEach(({ count, r }, ri) => {
-    for (let i = 0; i < count; i++) {
-      const a = (i / count) * Math.PI * 2 + (ri % 2 ? Math.PI / count : 0);
-      leds.push([Math.cos(a) * r, Math.sin(a) * r]);
-    }
-  });
+  const pivotY = 0.20; // pivot height from ground
+  const yokeT = 0.024; // yoke arm thickness
 
   return (
     <group>
-      {/* === Yoke / Floor Stand === */}
-      {[-1, 1].map(side => (
+      {/* Scissor Floor Yoke Bracket resting on floor at Y = 0 */}
+      {[-1, 1].map((side) => (
         <group key={side}>
-          {/* Arm */}
+          {/* Main upright arm */}
           <mesh position={[side * (canR + yokeT / 2), pivotY / 2, 0]}>
             <boxGeometry args={[yokeT, pivotY, 0.035]} />
-            <meshStandardMaterial color={yokeColor} metalness={0.6} roughness={0.35} />
+            <meshStandardMaterial color={yokeColor} metalness={0.65} roughness={0.32} />
           </mesh>
-          {/* Foot (angled out) */}
-          <mesh position={[side * (canR + 0.02), 0.01, 0]} rotation={[0, 0, side * -0.15]}>
-            <boxGeometry args={[0.05, 0.02, 0.055]} />
-            <meshStandardMaterial color={yokeColor} metalness={0.6} roughness={0.35} />
+          {/* Splayed floor foot */}
+          <mesh
+            position={[side * (canR + 0.02), 0.01, 0]}
+            rotation={[0, 0, side * -0.15]}
+          >
+            <boxGeometry args={[0.055, 0.02, 0.06]} />
+            <meshStandardMaterial color={yokeColor} metalness={0.65} roughness={0.32} />
           </mesh>
-          {/* Pivot bolt */}
-          <mesh position={[side * (canR + 0.005), pivotY, 0]} rotation={[0, 0, Math.PI / 2]}>
-            <cylinderGeometry args={[0.01, 0.01, yokeT + 0.05, 12]} />
-            <meshStandardMaterial color="#3a3a42" metalness={0.7} roughness={0.2} />
+          {/* Friction pivot bolt */}
+          <mesh
+            position={[side * (canR + 0.005), pivotY, 0]}
+            rotation={[0, 0, Math.PI / 2]}
+          >
+            <cylinderGeometry args={[0.012, 0.012, yokeT + 0.04, 12]} />
+            <meshStandardMaterial color="#404048" metalness={0.75} roughness={0.2} />
           </mesh>
-          {/* Locking knob */}
-          <mesh position={[side * (canR + yokeT + 0.008), pivotY, 0]} rotation={[0, 0, Math.PI / 2]}>
-            <cylinderGeometry args={[0.018, 0.012, 0.015, 12]} />
-            <meshStandardMaterial color="#2a2a32" metalness={0.6} roughness={0.3} />
+          {/* Star locking knob */}
+          <mesh
+            position={[side * (canR + yokeT + 0.012), pivotY, 0]}
+            rotation={[0, 0, Math.PI / 2]}
+          >
+            <cylinderGeometry args={[0.022, 0.014, 0.018, 6]} />
+            <meshStandardMaterial color="#22222a" metalness={0.6} roughness={0.35} />
           </mesh>
         </group>
       ))}
 
-      {/* === Head (tilts around pivot) === */}
+      {/* Head: Tilts around pivot axis */}
       <group position={[0, pivotY, 0]} rotation={[tilt - 0.4, 0, 0]}>
-        {/* Slim can body */}
+        {/* Main beveled cylindrical body */}
         <mesh castShadow rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[canR, canRBack, canD, 32]} />
-          <meshStandardMaterial color={bodyColor} metalness={0.45} roughness={0.4} />
+          <cylinderGeometry args={[canR, canRBack, canD, 24]} />
+          <meshStandardMaterial color={bodyColor} metalness={0.55} roughness={0.35} />
           {selected && isEditMode && <Highlight />}
-          <EdgeOutline />
         </mesh>
 
-        {/* Front bezel ring */}
-        <mesh position={[0, 0, canD / 2 + 0.003]}>
-          <torusGeometry args={[canR - 0.005, 0.007, 12, 32]} />
-          <meshStandardMaterial color="#303038" metalness={0.7} roughness={0.2} />
+        {/* Stepped front lens bezel ring */}
+        <mesh position={[0, 0, canD / 2 + 0.004]}>
+          <torusGeometry args={[canR - 0.006, 0.008, 12, 32]} />
+          <meshStandardMaterial color="#303038" metalness={0.7} roughness={0.25} />
         </mesh>
 
-        {/* Recessed black interior face */}
-        <mesh position={[0, 0, canD / 2 - 0.012]}>
-          <circleGeometry args={[canR - 0.008, 32]} />
-          <meshStandardMaterial color="#050508" roughness={0.95} metalness={0} />
-        </mesh>
-
-        {/* 54 LED beads — moderate emissive so beads stay readable */}
-        {leds.map(([lx, ly], i) => (
-          <mesh key={`led-${i}`} position={[lx, ly, canD / 2 - 0.008]}>
-            <circleGeometry args={[0.0095, 10]} />
-            <meshStandardMaterial
-              color={color}
-              emissive={color}
-              emissiveIntensity={intensity * 1.3}
-              toneMapped={false}
-            />
+        {/* 4 Gel frame retaining clips */}
+        {[0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2].map((angle, i) => (
+          <mesh
+            key={i}
+            position={[
+              Math.cos(angle) * (canR + 0.002),
+              Math.sin(angle) * (canR + 0.002),
+              canD / 2 + 0.006,
+            ]}
+          >
+            <boxGeometry args={[0.012, 0.012, 0.01]} />
+            <meshStandardMaterial color="#404048" metalness={0.8} roughness={0.2} />
           </mesh>
         ))}
 
-        {/* Back cap */}
-        <mesh position={[0, 0, -canD / 2 - 0.001]}>
+        {/* Recessed anti-reflective dark interior baffle */}
+        <mesh position={[0, 0, canD / 2 + 0.001]}>
+          <circleGeometry args={[canR - 0.01, 32]} />
+          <meshStandardMaterial color="#06060a" roughness={0.95} metalness={0} />
+        </mesh>
+
+        {/* 19 High-power LED lenses merged into 1 mesh */}
+        <mesh geometry={getParLensGeometry()} position={[0, 0, canD / 2 + 0.003]}>
+          <meshStandardMaterial
+            color={color}
+            emissive={color}
+            emissiveIntensity={intensity * 1.6}
+            toneMapped={false}
+            roughness={0.2}
+            metalness={0.1}
+          />
+        </mesh>
+
+        {/* Rear cap & cooling vents */}
+        <mesh position={[0, 0, -canD / 2 - 0.001]} rotation={[0, Math.PI, 0]}>
           <circleGeometry args={[canRBack, 24]} />
-          <meshStandardMaterial color="#101014" metalness={0.3} roughness={0.6} />
+          <meshStandardMaterial color="#121218" metalness={0.4} roughness={0.5} />
+        </mesh>
+        <mesh position={[0, 0, -canD / 2 - 0.002]} rotation={[0, Math.PI, 0]}>
+          <circleGeometry args={[canRBack * 0.65, 16]} />
+          <GrilleMaterial color="#222228" roughness={0.6} metalness={0.5} />
         </mesh>
 
-        {/* Vertical heat-sink fins across the back */}
-        {Array.from({ length: 7 }, (_, i) => {
-          const fx = (i - 3) * 0.03;
-          const fh = Math.sqrt(Math.max(0.002, canRBack * canRBack - fx * fx)) * 2 * 0.85;
-          return (
-            <mesh key={`fin-${i}`} position={[fx, 0, -canD / 2 - 0.008]}>
-              <boxGeometry args={[0.006, fh, 0.016]} />
-              <meshStandardMaterial color="#0a0a10" roughness={0.8} metalness={0.3} />
-            </mesh>
-          );
-        })}
-
-        {/* DMX / Power connectors */}
-        {[0.03, -0.03].map((x, i) => (
-          <mesh key={`conn-${i}`} position={[x, -canRBack + 0.04, -canD / 2 - 0.022]}>
-            <boxGeometry args={[0.022, 0.016, 0.018]} />
-            <meshStandardMaterial color="#2a2a32" metalness={0.5} roughness={0.4} />
+        {/* Rear heatsink fin louvers */}
+        {[-0.08, -0.04, 0, 0.04, 0.08].map((fx, i) => (
+          <mesh key={i} position={[fx, 0, -canD / 2 - 0.01]}>
+            <boxGeometry args={[0.006, 0.14, 0.018]} />
+            <meshStandardMaterial color="#0c0c12" roughness={0.8} metalness={0.4} />
           </mesh>
         ))}
 
-        {/* Safety loop */}
-        <mesh position={[0, canRBack - 0.01, -canD / 2 - 0.012]}>
-          <torusGeometry args={[0.012, 0.003, 8, 12]} />
-          <meshStandardMaterial color="#3a3a42" metalness={0.7} roughness={0.2} />
+        {/* DMX / Powercon connectors & safety eyelet */}
+        <mesh position={[0.035, -0.05, -canD / 2 - 0.02]}>
+          <boxGeometry args={[0.022, 0.018, 0.02]} />
+          <meshStandardMaterial color="#2e2e38" metalness={0.6} roughness={0.3} />
+        </mesh>
+        <mesh position={[-0.035, -0.05, -canD / 2 - 0.02]}>
+          <boxGeometry args={[0.022, 0.018, 0.02]} />
+          <meshStandardMaterial color="#2e2e38" metalness={0.6} roughness={0.3} />
+        </mesh>
+        <mesh position={[0, 0.07, -canD / 2 - 0.014]}>
+          <torusGeometry args={[0.012, 0.003, 8, 14]} />
+          <meshStandardMaterial color="#505058" metalness={0.8} roughness={0.2} />
         </mesh>
 
-        <group position={[0, 0, canD / 2]}>
-          <BeamCone color={color} intensity={intensity} radius={0.5} length={2.2} />
+        {/* Emit from the aperture; the lens matrix supplies the visible glow. */}
+        <group position={[0, 0, canD / 2 + 0.013]}>
+          <LightSource color={color} intensity={intensity} />
         </group>
-        <LightSource color={color} intensity={intensity} />
       </group>
     </group>
   );
 };
 
-// Moving Head Beam — base + U-yoke + bullet head with front lens
-const MovingHead = ({ color, intensity, tilt, selected, isEditMode }: any) => {
-  const baseColor = '#222228';
-  const shellColor = '#2a2a30';
-  const baseH = 0.1;
-  const armX = 0.135;       // arm offset from center
-  const armH = 0.27;        // arm height
-  const pivotY = baseH + 0.03 + armH - 0.07; // head pivot height
-  const headLen = 0.3;
+// Moving Head: Sculpted aerodynamic head + molded base + U-yoke
+const MovingHead = ({
+  color,
+  intensity,
+  tilt,
+  selected,
+  isEditMode,
+}: {
+  color: string;
+  intensity: number;
+  tilt: number;
+  selected?: boolean;
+  isEditMode?: boolean;
+}) => {
+  const baseColor = '#1c1c22';
+  const shellColor = '#24242a';
+  const armX = 0.14;
+  const armH = 0.26;
+  const pivotY = 0.35;
+  const headLen = 0.30;
 
   return (
     <group>
-      {/* === Base === */}
-      <mesh position={[0, baseH / 2, 0]} castShadow>
-        <boxGeometry args={[0.3, baseH, 0.24]} />
-        <meshStandardMaterial color={baseColor} metalness={0.4} roughness={0.45} />
+      {/* Molded Aerodynamic Base with beveled edges */}
+      <SoftBox
+        size={[0.32, 0.10, 0.25]}
+        position={[0, 0.06, 0]}
+        radius={0.018}
+        color={baseColor}
+        roughness={0.42}
+        metalness={0.48}
+      >
         {selected && isEditMode && <Highlight />}
-        <EdgeOutline />
+      </SoftBox>
+
+      {/* 4 Rubber feet resting flat on floor at Y = 0 */}
+      {[
+        [0.12, 0.01, 0.09],
+        [-0.12, 0.01, 0.09],
+        [0.12, 0.01, -0.09],
+        [-0.12, 0.01, -0.09],
+      ].map((p, i) => (
+        <mesh key={i} position={p as [number, number, number]}>
+          <cylinderGeometry args={[0.018, 0.02, 0.02, 12]} />
+          <meshStandardMaterial color="#141418" roughness={0.9} />
+        </mesh>
+      ))}
+
+      {/* Front backlit OLED display & rotary encoder */}
+      <mesh position={[0, 0.06, 0.126]}>
+        <boxGeometry args={[0.11, 0.038, 0.002]} />
+        <meshStandardMaterial
+          color="#061c10"
+          emissive="#1ed760"
+          emissiveIntensity={0.5}
+          toneMapped={false}
+        />
       </mesh>
-      {/* Display panel */}
-      <mesh position={[0, baseH / 2, 0.121]}>
-        <boxGeometry args={[0.1, 0.035, 0.002]} />
-        <meshStandardMaterial color="#0a2818" emissive="#1fd07a" emissiveIntensity={0.6} toneMapped={false} />
+      <mesh position={[0.08, 0.06, 0.128]}>
+        <cylinderGeometry args={[0.012, 0.012, 0.006, 16]} />
+        <meshStandardMaterial color="#383840" metalness={0.7} roughness={0.3} />
       </mesh>
-      {/* Side carry handles */}
-      {[-1, 1].map(side => (
-        <mesh key={side} position={[side * 0.16, baseH / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.035, 0.008, 8, 16, Math.PI]} />
+
+      {/* Recessed side carry handles */}
+      {[-1, 1].map((side) => (
+        <mesh
+          key={side}
+          position={[side * 0.165, 0.06, 0]}
+          rotation={[Math.PI / 2, 0, 0]}
+        >
+          <torusGeometry args={[0.034, 0.008, 8, 16, Math.PI]} />
           <meshStandardMaterial color="#3a3a42" metalness={0.6} roughness={0.3} />
         </mesh>
       ))}
+
       {/* Pan collar */}
-      <mesh position={[0, baseH + 0.015, 0]}>
+      <mesh position={[0, 0.12, 0]}>
         <cylinderGeometry args={[0.115, 0.125, 0.03, 24]} />
-        <meshStandardMaterial color="#36363e" metalness={0.6} roughness={0.3} />
+        <meshStandardMaterial color="#32323a" metalness={0.65} roughness={0.28} />
       </mesh>
 
-      {/* === Yoke (U shape) === */}
-      <group position={[0, baseH + 0.03, 0]}>
-        {/* Bottom hub */}
+      {/* U-Yoke Assembly */}
+      <group position={[0, 0.135, 0]}>
+        {/* Bottom yoke hub */}
         <mesh position={[0, 0.02, 0]}>
-          <boxGeometry args={[0.26, 0.04, 0.09]} />
-          <meshStandardMaterial color={shellColor} metalness={0.5} roughness={0.35} />
-          <EdgeOutline />
+          <boxGeometry args={[0.28, 0.04, 0.10]} />
+          <meshStandardMaterial color={shellColor} metalness={0.52} roughness={0.35} />
         </mesh>
-        {/* Arms with rounded tops */}
-        {[-1, 1].map(side => (
+        {/* Sculpted arms with beveled shoulders */}
+        {[-1, 1].map((side) => (
           <group key={side}>
             <mesh position={[side * armX, armH / 2, 0]}>
-              <boxGeometry args={[0.032, armH, 0.085]} />
-              <meshStandardMaterial color={shellColor} metalness={0.5} roughness={0.35} />
-              <EdgeOutline />
+              <boxGeometry args={[0.034, armH, 0.09]} />
+              <meshStandardMaterial color={shellColor} metalness={0.52} roughness={0.35} />
             </mesh>
-            <mesh position={[side * armX, armH, 0]} rotation={[0, 0, Math.PI / 2]}>
-              <cylinderGeometry args={[0.0425, 0.0425, 0.032, 16]} />
-              <meshStandardMaterial color={shellColor} metalness={0.5} roughness={0.35} />
+            <mesh
+              position={[side * armX, armH, 0]}
+              rotation={[0, 0, Math.PI / 2]}
+            >
+              <cylinderGeometry args={[0.045, 0.045, 0.034, 16]} />
+              <meshStandardMaterial color={shellColor} metalness={0.52} roughness={0.35} />
             </mesh>
-            {/* Tilt-lock knob */}
-            <mesh position={[side * (armX + 0.025), armH, 0]} rotation={[0, 0, Math.PI / 2]}>
+            {/* Tilt-lock lever */}
+            <mesh
+              position={[side * (armX + 0.026), armH, 0]}
+              rotation={[0, 0, Math.PI / 2]}
+            >
               <cylinderGeometry args={[0.02, 0.015, 0.018, 12]} />
-              <meshStandardMaterial color="#16161a" metalness={0.6} roughness={0.3} />
+              <meshStandardMaterial color="#18181e" metalness={0.7} roughness={0.25} />
             </mesh>
           </group>
         ))}
       </group>
 
-      {/* === Head (tilts between arms) === */}
+      {/* Sculpted Head (tilts smoothly between arms) */}
       <group position={[0, pivotY, 0]} rotation={[tilt, 0, 0]}>
         {/* Side pivot hubs */}
-        {[-1, 1].map(side => (
-          <mesh key={side} position={[side * 0.105, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
-            <cylinderGeometry args={[0.045, 0.045, 0.03, 16]} />
-            <meshStandardMaterial color="#1c1c22" metalness={0.6} roughness={0.3} />
+        {[-1, 1].map((side) => (
+          <mesh
+            key={side}
+            position={[side * 0.11, 0, 0]}
+            rotation={[0, 0, Math.PI / 2]}
+          >
+            <cylinderGeometry args={[0.046, 0.046, 0.03, 16]} />
+            <meshStandardMaterial color="#1a1a20" metalness={0.65} roughness={0.3} />
           </mesh>
         ))}
-        {/* Main body — tapers toward the lens */}
+
+        {/* Sculpted head body */}
         <mesh castShadow rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.082, 0.102, headLen, 24]} />
-          <meshStandardMaterial color={shellColor} metalness={0.5} roughness={0.35} />
-          <EdgeOutline />
+          <cylinderGeometry args={[0.084, 0.104, headLen, 24]} />
+          <meshStandardMaterial color={shellColor} metalness={0.52} roughness={0.35} />
         </mesh>
-        {/* Rounded rear cap */}
-        <mesh position={[0, 0, -headLen / 2]} rotation={[Math.PI / 2, 0, 0]} scale={[1, 0.55, 1]}>
-          <sphereGeometry args={[0.102, 24, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
-          <meshStandardMaterial color={shellColor} metalness={0.5} roughness={0.35} />
+
+        {/* Side ventilation grilles */}
+        {[-1, 1].map((side) => (
+          <mesh
+            key={side}
+            position={[side * 0.09, 0, 0]}
+            rotation={[0, side * (Math.PI / 2), 0]}
+          >
+            <planeGeometry args={[0.12, 0.08]} />
+            <GrilleMaterial color="#1a1a20" roughness={0.6} metalness={0.5} />
+          </mesh>
+        ))}
+
+        {/* Rounded rear dome cap */}
+        <mesh
+          position={[0, 0, -headLen / 2]}
+          rotation={[Math.PI / 2, 0, 0]}
+          scale={[1, 0.55, 1]}
+        >
+          <sphereGeometry args={[0.104, 24, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
+          <meshStandardMaterial color={shellColor} metalness={0.52} roughness={0.35} />
         </mesh>
-        {/* Cooling rib rings */}
+
+        {/* Rear cooling fin louvers */}
         {[-0.09, -0.04, 0.01].map((zOff, i) => (
           <mesh key={i} position={[0, 0, zOff]} rotation={[Math.PI / 2, 0, 0]}>
-            <torusGeometry args={[0.097 - i * 0.004, 0.004, 8, 24]} />
-            <meshStandardMaterial color="#1c1c22" metalness={0.6} roughness={0.3} />
+            <torusGeometry args={[0.098 - i * 0.004, 0.004, 8, 24]} />
+            <meshStandardMaterial color="#1a1a20" metalness={0.65} roughness={0.3} />
           </mesh>
         ))}
-        {/* Front lens housing */}
-        <mesh position={[0, 0, headLen / 2 + 0.025]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.092, 0.082, 0.05, 24]} />
-          <meshStandardMaterial color="#16161a" metalness={0.6} roughness={0.25} />
+
+        {/* Stepped front lens bezel */}
+        <mesh
+          position={[0, 0, headLen / 2 + 0.024]}
+          rotation={[Math.PI / 2, 0, 0]}
+        >
+          <cylinderGeometry args={[0.094, 0.084, 0.048, 24]} />
+          <meshStandardMaterial color="#16161c" metalness={0.65} roughness={0.25} />
         </mesh>
-        {/* Convex front lens */}
-        <mesh position={[0, 0, headLen / 2 + 0.045]} rotation={[Math.PI / 2, 0, 0]} scale={[1, 0.45, 1]}>
-          <sphereGeometry args={[0.078, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
+
+        {/* Convex front objective lens element */}
+        <mesh
+          position={[0, 0, headLen / 2 + 0.044]}
+          rotation={[Math.PI / 2, 0, 0]}
+          scale={[1, 0.45, 1]}
+        >
+          <sphereGeometry args={[0.08, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
           <meshStandardMaterial
             color={color}
             emissive={color}
-            emissiveIntensity={intensity * 2}
+            emissiveIntensity={intensity * 2.0}
             toneMapped={false}
-            metalness={0}
-            roughness={0.2}
+            metalness={0.05}
+            roughness={0.15}
           />
         </mesh>
 
-        <group position={[0, 0, headLen / 2 + 0.05]}>
-          <BeamCone color={color} intensity={intensity} radius={0.22} length={3} />
+        {/* The optical source follows the front objective and head tilt. */}
+        <group position={[0, 0, headLen / 2 + 0.082]}>
+          <LightSource color={color} intensity={intensity} />
         </group>
-        <LightSource color={color} intensity={intensity} />
       </group>
     </group>
   );
 };
 
-export const Lighting = ({ type, color, intensity = 1, tilt = 0, selected, isEditMode, standType }: any) => {
-  // Lighten fixture body for SketchUp-style visibility
-  const bodyColor = '#a0a0a8';
+export const Lighting = ({
+  type,
+  color,
+  intensity = 1,
+  tilt = 0,
+  selected,
+  isEditMode,
+  standType,
+}: {
+  type: ObjectType;
+  color: string;
+  intensity?: number;
+  tilt?: number;
+  selected?: boolean;
+  isEditMode?: boolean;
+  standType?: string;
+}) => {
+  const bodyColor = '#202026';
+  const isPar = type === ObjectType.LIGHT_PAR || type === ObjectType.LIGHT;
 
   return (
     <group>
-      {type === ObjectType.LIGHT_PAR && (
-        <LedPar color={color} intensity={intensity} tilt={tilt} selected={selected} isEditMode={isEditMode} />
+      {/* Tour-grade LED Par Can (or legacy LIGHT counterpart) */}
+      {isPar && (
+        <LedPar
+          color={color}
+          intensity={intensity}
+          tilt={tilt}
+          selected={selected}
+          isEditMode={isEditMode}
+        />
       )}
 
+      {/* Moving Head Spot/Beam */}
       {type === ObjectType.LIGHT_MOVING && (
-        <MovingHead color={color} intensity={intensity} tilt={tilt} selected={selected} isEditMode={isEditMode} />
+        <MovingHead
+          color={color}
+          intensity={intensity}
+          tilt={tilt}
+          selected={selected}
+          isEditMode={isEditMode}
+        />
       )}
 
+      {/* T-Bar Stand with 4 suspended Par/Spot fixtures */}
       {type === ObjectType.LIGHT_STAND && (
-         <group>
-            {standType === 'PLATE' ? <PlateBase /> : <TripodBase />}
+        <group>
+          {standType === 'PLATE' ? <PlateBase /> : <TripodBase />}
 
-            {/* Extension Pole */}
-            <mesh position={[0, 1.6, 0]}>
-               <cylinderGeometry args={[0.02, 0.02, 0.8]} />
-               <meshStandardMaterial color="#707078" metalness={0.6} roughness={0.35} />
-            </mesh>
-            {/* Adjustment Knob */}
-            <mesh position={[0, 1.2, 0]}>
-                <cylinderGeometry args={[0.03, 0.03, 0.06]} />
-                <meshStandardMaterial color="#606068" metalness={0.7} roughness={0.3} />
-            </mesh>
+          {/* Lower Extension Mast */}
+          <mesh position={[0, 1.35, 0]}>
+            <cylinderGeometry args={[0.022, 0.022, 0.7, 16]} />
+            <meshStandardMaterial color="#686870" metalness={0.78} roughness={0.26} />
+          </mesh>
 
-            <group position={[0, 2, 0]}>
-               {/* T-Bar */}
-               <mesh>
-                  <boxGeometry args={[1.5, 0.05, 0.05]} />
-                  <meshStandardMaterial color={bodyColor} metalness={0.6} roughness={0.3} />
-                  {selected && isEditMode && <Highlight />}
-                  <EdgeOutline />
-               </mesh>
-               {/* 4 Par Cans */}
-               {[-0.6, -0.2, 0.2, 0.6].map((x, i) => (
-                  <group key={i} position={[x, -0.15, 0]} rotation={[tilt + 0.5, 0, 0]}>
-                     <mesh castShadow rotation={[Math.PI/2, 0, 0]}>
-                        <cylinderGeometry args={[0.08, 0.06, 0.2]} />
-                        <meshStandardMaterial color={bodyColor} metalness={0.4} roughness={0.4} />
-                        <EdgeOutline />
-                     </mesh>
-                     <mesh position={[0, 0, 0.11]}>
-                        <circleGeometry args={[0.06, 16]} />
-                        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={intensity} toneMapped={false} />
-                     </mesh>
-                     <LightSource color={color} intensity={intensity} />
+          {/* Telescopic Lock Collar & T-Handle */}
+          <mesh position={[0, 1.55, 0]}>
+            <cylinderGeometry args={[0.034, 0.034, 0.06, 16]} />
+            <meshStandardMaterial color="#25252b" metalness={0.6} roughness={0.35} />
+          </mesh>
+          <mesh position={[0.035, 1.55, 0]} rotation={[0, 0, Math.PI / 2]}>
+            <cylinderGeometry args={[0.008, 0.008, 0.06, 12]} />
+            <meshStandardMaterial color="#404048" metalness={0.8} roughness={0.2} />
+          </mesh>
+
+          {/* Upper Extension Mast */}
+          <mesh position={[0, 1.85, 0]}>
+            <cylinderGeometry args={[0.018, 0.018, 0.6, 16]} />
+            <meshStandardMaterial color="#888890" metalness={0.82} roughness={0.22} />
+          </mesh>
+
+          {/* Top T-Bar & Fixtures */}
+          <group position={[0, 2.15, 0]}>
+            {/* Structural Crossbar */}
+            <mesh>
+              <boxGeometry args={[1.5, 0.05, 0.05]} />
+              <meshStandardMaterial color={bodyColor} metalness={0.65} roughness={0.3} />
+              {selected && isEditMode && <Highlight />}
+            </mesh>
+            {/* End caps */}
+            {[-1, 1].map((side) => (
+              <mesh key={side} position={[side * 0.755, 0, 0]}>
+                <boxGeometry args={[0.01, 0.054, 0.054]} />
+                <meshStandardMaterial color="#15151a" roughness={0.8} />
+              </mesh>
+            ))}
+
+            {/* 4 Suspended Touring Fixtures */}
+            {[-0.55, -0.18, 0.18, 0.55].map((x, i) => (
+              <group key={i} position={[x, -0.06, 0]}>
+                {/* O-Clamp Spigot Mount */}
+                <mesh position={[0, 0.02, 0]}>
+                  <cylinderGeometry args={[0.028, 0.028, 0.035, 16]} />
+                  <meshStandardMaterial color="#383842" metalness={0.75} roughness={0.25} />
+                </mesh>
+
+                {/* Fixture head tilting below crossbar */}
+                <group position={[0, -0.12, 0]} rotation={[tilt + 0.45, 0, 0]}>
+                  {/* Yoke arm */}
+                  <mesh position={[0, 0.06, 0]}>
+                    <cylinderGeometry args={[0.01, 0.01, 0.08, 12]} />
+                    <meshStandardMaterial color="#202026" metalness={0.6} roughness={0.3} />
+                  </mesh>
+
+                  {/* Refined Can Body */}
+                  <mesh castShadow rotation={[Math.PI / 2, 0, 0]}>
+                    <cylinderGeometry args={[0.082, 0.068, 0.22, 20]} />
+                    <meshStandardMaterial color={bodyColor} metalness={0.55} roughness={0.35} />
+                  </mesh>
+
+                  {/* Stepped Front Bezel */}
+                  <mesh position={[0, 0, 0.114]}>
+                    <torusGeometry args={[0.078, 0.007, 10, 24]} />
+                    <meshStandardMaterial color="#303038" metalness={0.7} roughness={0.25} />
+                  </mesh>
+
+                  {/* Emissive Front Lens */}
+                  <mesh position={[0, 0, 0.118]}>
+                    <circleGeometry args={[0.074, 20]} />
+                    <meshStandardMaterial
+                      color={color}
+                      emissive={color}
+                      emissiveIntensity={intensity * 1.5}
+                      toneMapped={false}
+                      roughness={0.2}
+                      metalness={0.1}
+                    />
+                  </mesh>
+
+                  {/* Rear cooling fin louvers */}
+                  <mesh position={[0, 0, -0.112]}>
+                    <circleGeometry args={[0.065, 16]} />
+                    <GrilleMaterial color="#25252c" roughness={0.6} metalness={0.5} />
+                  </mesh>
+
+                  {/* Light Source */}
+                  <group position={[0, 0, 0.12]}>
+                    <LightSource color={color} intensity={intensity} />
                   </group>
-               ))}
-            </group>
-         </group>
+                </group>
+              </group>
+            ))}
+          </group>
+        </group>
       )}
 
+      {/* Followspot: Elongated dual-condenser barrel, forced-air cooling, steering handles & tripod */}
       {type === ObjectType.LIGHT_FOLLOWSPOT && (
-         <group>
-            {/* Tall tripod base */}
-            {(() => {
-              const hubHeight = 1.4;
-              const legSpread = 0.65;
-              const legRadius = 0.015;
-              const legLength = Math.sqrt(hubHeight * hubHeight + legSpread * legSpread);
-              const legAngle = Math.atan2(legSpread, hubHeight);
-              return (
-                <group>
-                  {/* Central pole */}
-                  <mesh position={[0, 0.75, 0]} castShadow>
-                    <cylinderGeometry args={[0.02, 0.02, 1.5]} />
-                    <meshStandardMaterial color="#707078" metalness={0.6} roughness={0.35} />
-                  </mesh>
-                  {/* Upper hub */}
-                  <mesh position={[0, hubHeight, 0]}>
-                    <cylinderGeometry args={[0.04, 0.04, 0.06]} />
-                    <meshStandardMaterial color="#606068" metalness={0.7} roughness={0.3} />
-                  </mesh>
-                  {/* Legs */}
-                  {[0, 120, 240].map((angle) => (
-                    <group key={angle} rotation={[0, angle * (Math.PI / 180), 0]}>
-                      <group position={[0, hubHeight / 2, legSpread / 2]} rotation={[-legAngle, 0, 0]}>
-                        <mesh castShadow>
-                          <cylinderGeometry args={[legRadius, legRadius, legLength]} />
-                          <meshStandardMaterial color="#707078" metalness={0.6} roughness={0.35} />
-                        </mesh>
-                      </group>
-                      <mesh position={[0, 0.015, legSpread]}>
-                        <cylinderGeometry args={[0.025, 0.025, 0.03]} />
-                        <meshStandardMaterial color="#505058" metalness={0.5} roughness={0.4} />
+        <group>
+          {/* Heavy-duty followspot tripod stand resting on floor */}
+          {(() => {
+            const hubHeight = 1.45;
+            const legSpread = 0.65;
+            const legRadius = 0.016;
+            const legLength = Math.sqrt(hubHeight * hubHeight + legSpread * legSpread);
+            const legAngle = Math.atan2(legSpread, hubHeight);
+            return (
+              <group>
+                {/* Central structural chrome column */}
+                <mesh position={[0, 0.725, 0]} castShadow>
+                  <cylinderGeometry args={[0.026, 0.026, 1.45, 16]} />
+                  <meshStandardMaterial color="#707078" metalness={0.8} roughness={0.24} />
+                </mesh>
+
+                {/* Upper hub collar */}
+                <mesh position={[0, hubHeight, 0]}>
+                  <cylinderGeometry args={[0.045, 0.045, 0.07, 16]} />
+                  <meshStandardMaterial color="#25252c" metalness={0.7} roughness={0.3} />
+                </mesh>
+
+                {/* 3 Wide heavy-duty tripod legs with lock caster wheels */}
+                {[0, 120, 240].map((angle) => (
+                  <group key={angle} rotation={[0, angle * (Math.PI / 180), 0]}>
+                    <group
+                      position={[0, hubHeight / 2, legSpread / 2]}
+                      rotation={[-legAngle, 0, 0]}
+                    >
+                      <mesh castShadow>
+                        <cylinderGeometry args={[legRadius, legRadius, legLength, 12]} />
+                        <meshStandardMaterial color="#707078" metalness={0.75} roughness={0.28} />
                       </mesh>
                     </group>
-                  ))}
-                </group>
-              );
-            })()}
+                    {/* Locking swivel caster wheel resting on floor (Y = 0) */}
+                    <mesh position={[0, 0.02, legSpread]}>
+                      <cylinderGeometry args={[0.024, 0.024, 0.03, 14]} />
+                      <meshStandardMaterial color="#303038" metalness={0.6} roughness={0.4} />
+                    </mesh>
+                  </group>
+                ))}
+              </group>
+            );
+          })()}
 
-            {/* Followspot head mount */}
-            <group position={[0, 1.5, 0]} rotation={[tilt, 0, 0]}>
-               {/* Tilt bracket */}
-               <mesh position={[0, 0, 0]}>
-                  <boxGeometry args={[0.2, 0.06, 0.12]} />
-                  <meshStandardMaterial color="#606068" metalness={0.6} roughness={0.3} />
-               </mesh>
-               {/* Main cylindrical body (~0.6m long) */}
-               <mesh castShadow rotation={[Math.PI / 2, 0, 0]} position={[0, 0.04, 0.2]}>
-                  <cylinderGeometry args={[0.075, 0.075, 0.6, 16]} />
-                  <meshStandardMaterial color={bodyColor} metalness={0.4} roughness={0.4} />
-                  {selected && isEditMode && <Highlight />}
-                  <EdgeOutline />
-               </mesh>
-               {/* Front lens housing (wider) */}
-               <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0.04, 0.52]}>
-                  <cylinderGeometry args={[0.09, 0.075, 0.08, 16]} />
-                  <meshStandardMaterial color={bodyColor} metalness={0.5} roughness={0.35} />
-               </mesh>
-               {/* Emissive lens face */}
-               <mesh position={[0, 0.04, 0.56]}>
-                  <circleGeometry args={[0.085, 16]} />
-                  <meshStandardMaterial color={color} emissive={color} emissiveIntensity={intensity * 1.5} toneMapped={false} />
-               </mesh>
-               {/* Rear handle bars */}
-               <mesh position={[0.08, 0.04, -0.15]}>
-                  <cylinderGeometry args={[0.012, 0.012, 0.2]} />
-                  <meshStandardMaterial color="#606068" metalness={0.6} roughness={0.3} />
-               </mesh>
-               <mesh position={[-0.08, 0.04, -0.15]}>
-                  <cylinderGeometry args={[0.012, 0.012, 0.2]} />
-                  <meshStandardMaterial color="#606068" metalness={0.6} roughness={0.3} />
-               </mesh>
-               {/* LightSource */}
-               <group position={[0, 0.04, 0.56]}>
-                  <LightSource color={color} intensity={intensity} />
-               </group>
-            </group>
-         </group>
-      )}
-
-      {type === ObjectType.LIGHT_WASH && (
-         <group position={[0, 0.1, 0]}>
-            {/* Floor bracket (like PAR) */}
+          {/* Followspot Head Assembly at Y = 1.50m */}
+          <group position={[0, 1.50, 0]} rotation={[tilt, 0, 0]}>
+            {/* Swivel Fork Yoke Bracket */}
             <mesh position={[0, 0, 0]}>
-               <boxGeometry args={[0.22, 0.05, 0.15]} />
-               <meshStandardMaterial color={bodyColor} metalness={0.5} roughness={0.35} />
+              <boxGeometry args={[0.22, 0.06, 0.14]} />
+              <meshStandardMaterial color="#383842" metalness={0.7} roughness={0.28} />
             </mesh>
-            {/* Yoke bracket sides */}
-            <mesh position={[-0.14, 0.1, 0]}>
-               <boxGeometry args={[0.02, 0.18, 0.12]} />
-               <meshStandardMaterial color={bodyColor} metalness={0.5} roughness={0.35} />
+            {[-1, 1].map((side) => (
+              <mesh key={side} position={[side * 0.11, 0.06, 0]}>
+                <boxGeometry args={[0.02, 0.12, 0.08]} />
+                <meshStandardMaterial color="#383842" metalness={0.7} roughness={0.28} />
+              </mesh>
+            ))}
+
+            {/* Rear Lamp Housing with massive cooling cowl */}
+            <mesh position={[0, 0.06, -0.16]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+              <cylinderGeometry args={[0.095, 0.095, 0.32, 20]} />
+              <meshStandardMaterial color={bodyColor} metalness={0.52} roughness={0.35} />
             </mesh>
-            <mesh position={[0.14, 0.1, 0]}>
-               <boxGeometry args={[0.02, 0.18, 0.12]} />
-               <meshStandardMaterial color={bodyColor} metalness={0.5} roughness={0.35} />
+            {/* Rear ventilation grille */}
+            <mesh position={[0, 0.06, -0.322]} rotation={[0, Math.PI, 0]}>
+              <circleGeometry args={[0.088, 18]} />
+              <GrilleMaterial color="#2a2a30" roughness={0.65} metalness={0.5} />
             </mesh>
-            {/* Wash head — wider & flatter rectangular body */}
-            <group position={[0, 0.15, 0]} rotation={[tilt - 0.4, 0, 0]}>
-               <mesh castShadow>
-                  <boxGeometry args={[0.3, 0.12, 0.25]} />
-                  <meshStandardMaterial color={bodyColor} metalness={0.4} roughness={0.4} />
-                  {selected && isEditMode && <Highlight />}
-                  <EdgeOutline />
-               </mesh>
-               {/* LED grid face — 4x3 array of emissive circles */}
-               {[-0.09, -0.03, 0.03, 0.09].map((x, xi) =>
-                  [-0.06, 0, 0.06].map((y, yi) => (
-                     <mesh key={`${xi}-${yi}`} position={[x, y, 0.126]}>
-                        <circleGeometry args={[0.022, 12]} />
-                        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={intensity * 0.8} toneMapped={false} />
-                     </mesh>
-                  ))
-               )}
-               {/* Single LightSource for the whole panel */}
-               <group position={[0, 0, 0.126]}>
-                  <LightSource color={color} intensity={intensity} />
-               </group>
+
+            {/* Mid-body optical chamber with color boomerang & framing shutters */}
+            <mesh position={[0, 0.06, 0.10]} rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[0.082, 0.092, 0.22, 20]} />
+              <meshStandardMaterial color={bodyColor} metalness={0.52} roughness={0.35} />
+              {selected && isEditMode && <Highlight />}
+            </mesh>
+            {/* 4 Boomerang color selector levers */}
+            {[-0.03, -0.01, 0.01, 0.03].map((zPos, i) => (
+              <mesh key={i} position={[0.09, 0.12, 0.08 + zPos]}>
+                <boxGeometry args={[0.012, 0.05, 0.01]} />
+                <meshStandardMaterial color="#505058" metalness={0.8} roughness={0.25} />
+              </mesh>
+            ))}
+
+            {/* Front optical barrel with zoom & focus adjustment rings */}
+            <mesh position={[0, 0.06, 0.36]} rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[0.088, 0.082, 0.30, 20]} />
+              <meshStandardMaterial color={bodyColor} metalness={0.52} roughness={0.35} />
+            </mesh>
+            {[0.28, 0.44].map((z, i) => (
+              <mesh key={i} position={[0, 0.06, z]} rotation={[Math.PI / 2, 0, 0]}>
+                <torusGeometry args={[0.089, 0.005, 8, 24]} />
+                <meshStandardMaterial color="#404048" metalness={0.8} roughness={0.2} />
+              </mesh>
+            ))}
+
+            {/* Flared front objective hood */}
+            <mesh position={[0, 0.06, 0.54]} rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[0.105, 0.088, 0.08, 20]} />
+              <meshStandardMaterial color="#1a1a20" metalness={0.6} roughness={0.3} />
+            </mesh>
+
+            {/* High-power front objective lens face */}
+            <mesh position={[0, 0.06, 0.582]}>
+              <circleGeometry args={[0.098, 24]} />
+              <meshStandardMaterial
+                color={color}
+                emissive={color}
+                emissiveIntensity={intensity * 1.8}
+                toneMapped={false}
+                roughness={0.15}
+                metalness={0.1}
+              />
+            </mesh>
+
+            {/* Rear operator steering handles */}
+            {[-1, 1].map((side) => (
+              <group key={side} position={[side * 0.12, 0.06, -0.28]}>
+                <mesh position={[0, 0, -0.06]} rotation={[Math.PI / 2, 0, 0]}>
+                  <cylinderGeometry args={[0.012, 0.012, 0.12, 12]} />
+                  <meshStandardMaterial color="#151518" roughness={0.9} />
+                </mesh>
+              </group>
+            ))}
+
+            {/* Top spotter sight rail */}
+            <mesh position={[0, 0.17, 0.2]}>
+              <boxGeometry args={[0.015, 0.015, 0.4]} />
+              <meshStandardMaterial color="#303038" metalness={0.7} roughness={0.3} />
+            </mesh>
+
+            {/* Project from the flat front lens without a mesh light cone. */}
+            <group position={[0, 0.06, 0.59]}>
+              <LightSource color={color} intensity={intensity} />
             </group>
-         </group>
+          </group>
+        </group>
       )}
 
-      {type === ObjectType.LIGHT_STROBE && (
-         <group>
-            {/* Small yoke mount base */}
-            <mesh position={[0, 0.03, 0]}>
-               <boxGeometry args={[0.2, 0.06, 0.12]} />
-               <meshStandardMaterial color={bodyColor} metalness={0.5} roughness={0.35} />
+      {/* LED Wash Panel: Die-cast weatherproof chassis with 4x3 lens matrix */}
+      {type === ObjectType.LIGHT_WASH && (
+        <group>
+          {/* Floor Bracket Base resting on floor at Y = 0 */}
+          <mesh position={[0, 0.02, 0]}>
+            <boxGeometry args={[0.30, 0.04, 0.18]} />
+            <meshStandardMaterial color={bodyColor} metalness={0.6} roughness={0.35} />
+          </mesh>
+          {/* Floor rubber pads */}
+          {[
+            [0.12, 0.005, 0.07],
+            [-0.12, 0.005, 0.07],
+            [0.12, 0.005, -0.07],
+            [-0.12, 0.005, -0.07],
+          ].map((p, i) => (
+            <mesh key={i} position={p as [number, number, number]}>
+              <boxGeometry args={[0.03, 0.01, 0.03]} />
+              <meshStandardMaterial color="#141418" roughness={0.9} />
             </mesh>
-            {/* Yoke arms */}
-            <mesh position={[-0.22, 0.12, 0]}>
-               <boxGeometry args={[0.02, 0.16, 0.08]} />
-               <meshStandardMaterial color={bodyColor} metalness={0.5} roughness={0.35} />
+          ))}
+
+          {/* Sturdy dual yoke arms */}
+          {[-1, 1].map((side) => (
+            <mesh key={side} position={[side * 0.19, 0.09, 0]}>
+              <boxGeometry args={[0.024, 0.16, 0.10]} />
+              <meshStandardMaterial color={bodyColor} metalness={0.6} roughness={0.35} />
             </mesh>
-            <mesh position={[0.22, 0.12, 0]}>
-               <boxGeometry args={[0.02, 0.16, 0.08]} />
-               <meshStandardMaterial color={bodyColor} metalness={0.5} roughness={0.35} />
+          ))}
+
+          {/* Wash Head Tilting between arms at Y = 0.16m */}
+          <group position={[0, 0.16, 0]} rotation={[tilt - 0.4, 0, 0]}>
+            {/* Main beveled wash chassis */}
+            <SoftBox
+              size={[0.36, 0.16, 0.22]}
+              radius={0.015}
+              color={bodyColor}
+              roughness={0.42}
+              metalness={0.52}
+            >
+              {selected && isEditMode && <Highlight />}
+            </SoftBox>
+
+            {/* Recessed dark optical face baffle */}
+            <mesh position={[0, 0, 0.111]}>
+              <planeGeometry args={[0.33, 0.14]} />
+              <meshStandardMaterial color="#08080c" roughness={0.95} metalness={0} />
             </mesh>
-            {/* Main rectangular panel */}
-            <group position={[0, 0.18, 0]} rotation={[tilt, 0, 0]}>
-               <mesh castShadow>
-                  <boxGeometry args={[0.5, 0.3, 0.1]} />
-                  <meshStandardMaterial color={bodyColor} metalness={0.4} roughness={0.4} />
-                  {selected && isEditMode && <Highlight />}
-                  <EdgeOutline />
-               </mesh>
-               {/* 4 large emissive circular cells (2x2) */}
-               {[[-0.12, 0.05], [0.12, 0.05], [-0.12, -0.05], [0.12, -0.05]].map(([x, y], i) => (
-                  <mesh key={i} position={[x, y, 0.051]}>
-                     <circleGeometry args={[0.055, 16]} />
-                     <meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={intensity * 2.5} toneMapped={false} />
-                  </mesh>
-               ))}
-               {/* LightSource */}
-               <group position={[0, 0, 0.051]}>
-                  <LightSource color="#ffffff" intensity={intensity} />
-               </group>
+
+            {/* 4x3 Merged Lens Matrix (1 draw call) */}
+            <mesh geometry={getWashLensGeometry()} position={[0, 0, 0.113]}>
+              <meshStandardMaterial
+                color={color}
+                emissive={color}
+                emissiveIntensity={intensity * 1.3}
+                toneMapped={false}
+                roughness={0.2}
+                metalness={0.1}
+              />
+            </mesh>
+
+            {/* Rear cooling fin matrix & vents */}
+            <mesh position={[0, 0, -0.112]} rotation={[0, Math.PI, 0]}>
+              <planeGeometry args={[0.30, 0.12]} />
+              <GrilleMaterial color="#222228" roughness={0.6} metalness={0.5} />
+            </mesh>
+
+            {/* Broad rectangular emission follows the planar LED matrix. */}
+            <group position={[0, 0, 0.115]}>
+              <PanelLight color={color} intensity={intensity} width={0.33} height={0.14} />
             </group>
-         </group>
+          </group>
+        </group>
+      )}
+
+      {/* Strobe / Blinder: Shallow housing, high-intensity strobe line & 4 blinder cells */}
+      {type === ObjectType.LIGHT_STROBE && (
+        <group>
+          {/* Floor Bracket resting on floor at Y = 0 */}
+          <mesh position={[0, 0.02, 0]}>
+            <boxGeometry args={[0.34, 0.04, 0.14]} />
+            <meshStandardMaterial color={bodyColor} metalness={0.6} roughness={0.35} />
+          </mesh>
+          {[-1, 1].map((side) => (
+            <mesh key={side} position={[side * 0.25, 0.10, 0]}>
+              <boxGeometry args={[0.024, 0.18, 0.08]} />
+              <meshStandardMaterial color={bodyColor} metalness={0.6} roughness={0.35} />
+            </mesh>
+          ))}
+
+          {/* Strobe Head Tilting at Y = 0.18m */}
+          <group position={[0, 0.18, 0]} rotation={[tilt, 0, 0]}>
+            {/* Shallow beveled housing */}
+            <SoftBox
+              size={[0.48, 0.28, 0.12]}
+              radius={0.015}
+              color={bodyColor}
+              roughness={0.42}
+              metalness={0.52}
+            >
+              {selected && isEditMode && <Highlight />}
+            </SoftBox>
+
+            {/* Dark recessed face plate */}
+            <mesh position={[0, 0, 0.061]}>
+              <planeGeometry args={[0.45, 0.25]} />
+              <meshStandardMaterial color="#0a0a0f" roughness={0.9} metalness={0.1} />
+            </mesh>
+
+            {/* Central high-intensity linear strobe tube / line */}
+            <mesh position={[0, 0, 0.063]}>
+              <boxGeometry args={[0.42, 0.024, 0.006]} />
+              <meshStandardMaterial
+                color="#ffffff"
+                emissive="#ffffff"
+                emissiveIntensity={intensity * 3.0}
+                toneMapped={false}
+              />
+            </mesh>
+
+            {/* 4 Large Blinder Reflector Cells merged into 1 geometry */}
+            <mesh geometry={getStrobeCellsGeometry()} position={[0, 0, 0.062]}>
+              <meshStandardMaterial
+                color="#ffffff"
+                emissive="#ffffff"
+                emissiveIntensity={intensity * 1.6}
+                toneMapped={false}
+                roughness={0.25}
+                metalness={0.1}
+              />
+            </mesh>
+
+            {/* Rear cooling louvers */}
+            <mesh position={[0, 0, -0.062]} rotation={[0, Math.PI, 0]}>
+              <planeGeometry args={[0.40, 0.22]} />
+              <GrilleMaterial color="#222228" roughness={0.6} metalness={0.5} />
+            </mesh>
+
+            {/* Rectangular emission from the strobe face, not a spotlight cone. */}
+            <group position={[0, 0, 0.065]}>
+              <PanelLight color="#ffffff" intensity={intensity} width={0.45} height={0.25} />
+            </group>
+          </group>
+        </group>
       )}
     </group>
   );

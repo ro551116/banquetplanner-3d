@@ -9,11 +9,11 @@ import {
 } from 'lucide-react';
 import { ObjectType } from '../types';
 
-interface AddObjectPanelProps {
+export interface AddObjectPanelProps {
   isOpen: boolean;
   setIsOpen: (v: boolean) => void;
-  addObject: (type: ObjectType) => void;
-  setDraggedType: (type: ObjectType | null) => void;
+  placingType: ObjectType | null;
+  onBeginPlacement: (type: ObjectType) => void;
   setIsDrawMode: (v: boolean) => void;
   onOpenTrussBuilder: () => void;
 }
@@ -78,9 +78,16 @@ const CATEGORIES: Category[] = [
     ],
   },
 ];
+export function getObjectLabel(type: ObjectType): string {
+  for (const cat of CATEGORIES) {
+    const found = cat.items.find(item => item.type === type);
+    if (found) return found.label;
+  }
+  return String(type);
+}
 
 export const AddObjectPanel: React.FC<AddObjectPanelProps> = ({
-  isOpen, setIsOpen, addObject, setDraggedType, setIsDrawMode, onOpenTrussBuilder,
+  isOpen, setIsOpen, placingType, onBeginPlacement, setIsDrawMode, onOpenTrussBuilder,
 }) => {
   const [expandedCats, setExpandedCats] = useState<Set<string>>(
     new Set([CATEGORIES[0].name])
@@ -95,17 +102,18 @@ export const AddObjectPanel: React.FC<AddObjectPanelProps> = ({
     });
   };
 
-  const handleAdd = (type: ObjectType) => {
+  const handleItemClick = (type: ObjectType, isMobile = false) => {
+    setIsDrawMode(false);
     if (type === ObjectType.TRUSS_STRUCTURE) {
-      setIsOpen(false);
+      if (isMobile) setIsOpen(false);
       onOpenTrussBuilder();
-      setIsDrawMode(false);
       return;
     }
-    addObject(type);
-    setIsDrawMode(false);
+    onBeginPlacement(type);
+    if (isMobile) {
+      setIsOpen(false);
+    }
   };
-
   return (
     <>
       {/* Collapsed: just a "+" button */}
@@ -138,6 +146,16 @@ export const AddObjectPanel: React.FC<AddObjectPanelProps> = ({
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
+            {/* Placement hint */}
+            <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 text-[10px] text-slate-500 leading-tight">
+              {placingType ? (
+                <span className="text-blue-600 font-medium">
+                  放置中：{getObjectLabel(placingType)}（點擊場景放置，Esc 取消）
+                </span>
+              ) : (
+                <span>點選物件後點擊場景放置，按 Esc 取消</span>
+              )}
+            </div>
 
             {/* Scrollable list */}
             <div className="flex-1 overflow-y-auto py-0.5">
@@ -160,23 +178,29 @@ export const AddObjectPanel: React.FC<AddObjectPanelProps> = ({
                     {/* Items */}
                     {expanded && (
                       <div className="pb-0.5">
-                        {cat.items.map(item => (
-                          <button
-                            key={item.type}
-                            draggable={item.type !== ObjectType.TRUSS_STRUCTURE}
-                            onDragStart={(e) => {
-                              if (item.type === ObjectType.TRUSS_STRUCTURE) return;
-                              setDraggedType(item.type);
-                              e.dataTransfer.setData('application/banquet-type', item.type);
-                              e.dataTransfer.effectAllowed = 'copy';
-                            }}
-                            onClick={() => handleAdd(item.type)}
-                            className="w-full flex items-center gap-2 px-4 py-1 text-xs text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition-colors cursor-grab active:cursor-grabbing"
-                          >
-                            {item.icon}
-                            <span>{item.label}</span>
-                          </button>
-                        ))}
+                        {cat.items.map(item => {
+                          const isSelected = placingType === item.type;
+                          return (
+                            <button
+                              key={item.type}
+                              type="button"
+                              onClick={() => handleItemClick(item.type, false)}
+                              className={`w-full flex items-center justify-between px-4 py-1.5 text-xs transition-colors cursor-pointer text-left ${
+                                isSelected
+                                  ? 'bg-blue-100 text-blue-700 font-semibold'
+                                  : 'text-slate-600 hover:bg-blue-50 hover:text-blue-600'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                {item.icon}
+                                <span>{item.label}</span>
+                              </div>
+                              {isSelected && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                              )}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -205,6 +229,16 @@ export const AddObjectPanel: React.FC<AddObjectPanelProps> = ({
                 <X className="w-4 h-4" />
               </button>
             </div>
+            {/* Placement hint */}
+            <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 text-[11px] text-slate-500 leading-tight">
+              {placingType ? (
+                <span className="text-blue-600 font-medium">
+                  放置中：{getObjectLabel(placingType)}（點擊場景放置，Esc 取消）
+                </span>
+              ) : (
+                <span>點選物件後點擊場景放置，按 Esc 取消</span>
+              )}
+            </div>
 
             {/* Scrollable list */}
             <div className="flex-1 overflow-y-auto py-1">
@@ -225,16 +259,29 @@ export const AddObjectPanel: React.FC<AddObjectPanelProps> = ({
 
                     {expanded && (
                       <div className="pb-1">
-                        {cat.items.map(item => (
-                          <button
-                            key={item.type}
-                            onClick={() => handleAdd(item.type)}
-                            className="w-full flex items-center gap-2 px-5 py-2 text-sm text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition-colors"
-                          >
-                            {item.icon}
-                            <span>{item.label}</span>
-                          </button>
-                        ))}
+                        {cat.items.map(item => {
+                          const isSelected = placingType === item.type;
+                          return (
+                            <button
+                              key={item.type}
+                              type="button"
+                              onClick={() => handleItemClick(item.type, true)}
+                              className={`w-full flex items-center justify-between px-5 py-2.5 text-sm transition-colors cursor-pointer text-left ${
+                                isSelected
+                                  ? 'bg-blue-100 text-blue-700 font-semibold'
+                                  : 'text-slate-600 hover:bg-blue-50 hover:text-blue-600'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5">
+                                {item.icon}
+                                <span>{item.label}</span>
+                              </div>
+                              {isSelected && (
+                                <span className="text-xs text-blue-600 font-medium">放置中</span>
+                              )}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
