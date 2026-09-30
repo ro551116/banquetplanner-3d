@@ -76,3 +76,9 @@ Core types in `types.ts`:
 ### Environment Variables
 
 - `GEMINI_API_KEY` in `.env.local` — required for AI layout generation feature
+
+## Build Parity and QA Pitfalls
+
+- Release and parity builds: run `env -u GEMINI_API_KEY npm run build` unless you are deliberately configuring the browser AI feature. `vite.config.ts` calls `loadEnv(mode, '.', '')` and substitutes `GEMINI_API_KEY` into `process.env.API_KEY` and `process.env.GEMINI_API_KEY`, so a key inherited from the shell enlarges the bundle and can embed the credential. Never print keys or upload a bundle that may contain one. Compare lock versions and build inputs before calling a hash mismatch deployment drift (2026-09-27, commit ac9bdd9: the sanitized local bundle and production were byte-identical, 1,812,682 B).
+- React QA through DOM internals: a node's `__reactFiber` can point to an old alternate. Walk to HostRoot, take `root.stateNode.current`, find the fiber whose `stateNode` is the DOM node, then inspect its ancestors and hooks. Use this for diagnosis only, cross-check the real DOM, screenshots and interactions, and never mutate app state through fibers.
+- `@react-three/drei` 9.96 `Edges` replaces `ref.current.geometry` without disposing the previous `EdgesGeometry`. `Highlight` in `components/models/shared.tsx` owns and disposes its outline geometry. When changing editable procedural models, test repeated resizing of a selected object and watch `gl.info.memory.geometries` (after the fix it stays at 537 across 13 width changes).
