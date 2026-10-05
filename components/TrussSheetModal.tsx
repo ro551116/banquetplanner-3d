@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Download, FileDown, Printer, X } from 'lucide-react';
 import { BanquetObject } from '../types';
 import {
@@ -19,6 +19,23 @@ interface TrussSheetModalProps {
 }
 
 export const TrussSheetModal: React.FC<TrussSheetModalProps> = ({ objects, onClose }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleEscape, true);
+    return () => {
+      document.removeEventListener('keydown', handleEscape, true);
+      previousFocus?.focus();
+    };
+  }, [onClose]);
   const groups = getTrussGroups(objects);
   const totalBom = summarizeTrussBom(objects);
 
@@ -47,9 +64,9 @@ export const TrussSheetModal: React.FC<TrussSheetModalProps> = ({ objects, onClo
           }
         `}
       </style>
-      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="truss-sheet-title" tabIndex={-1} className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden outline-none">
         <div className="truss-no-print flex items-center justify-between px-4 py-3 border-b border-slate-100">
-          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <h3 id="truss-sheet-title" className="text-base font-semibold text-slate-900 flex items-center gap-2">
             <FileDown className="w-4 h-4 text-blue-600" />
             Truss 結構圖
           </h3>
@@ -57,7 +74,7 @@ export const TrussSheetModal: React.FC<TrussSheetModalProps> = ({ objects, onClo
             <button
               onClick={handleDownloadAll}
               disabled={groups.length === 0}
-              className="h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1.5"
+              className="ui-btn-primary"
             >
               <Download className="w-3.5 h-3.5" />
               全部 PNG
@@ -65,12 +82,12 @@ export const TrussSheetModal: React.FC<TrussSheetModalProps> = ({ objects, onClo
             <button
               onClick={() => window.print()}
               disabled={groups.length === 0}
-              className="h-8 px-3 rounded-lg bg-white border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1.5"
+              className="ui-btn-secondary"
             >
               <Printer className="w-3.5 h-3.5" />
               列印
             </button>
-            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600">
+            <button onClick={onClose} className="ui-icon-btn" aria-label="關閉">
               <X className="w-4 h-4" />
             </button>
           </div>

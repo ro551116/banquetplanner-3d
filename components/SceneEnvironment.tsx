@@ -6,7 +6,7 @@ import { HallConfig } from '../types';
 
 // Generated locally: the viewport and exported images do not depend on an HDR CDN.
 function StudioReflections({ night }: { night: boolean }) {
-  const { gl, scene } = useThree();
+  const { gl, scene, invalidate } = useThree();
   useEffect(() => {
     const room = new RoomEnvironment();
     // Lower the radiance itself on Three r160 (no scene.environmentIntensity).
@@ -20,16 +20,19 @@ function StudioReflections({ night }: { night: boolean }) {
     const map = generator.fromScene(room, 0.04);
     const previous = scene.environment;
     scene.environment = map.texture;
+    invalidate();
     room.dispose();
     generator.dispose();
     return () => {
       scene.environment = previous;
       map.dispose();
+      invalidate();
     };
-  }, [gl, scene, night]);
+  }, [gl, scene, night, invalidate]);
   useEffect(() => {
     gl.toneMappingExposure = 0.95;
-  }, [gl, night]);
+    invalidate();
+  }, [gl, night, invalidate]);
   return null;
 }
 
@@ -69,13 +72,14 @@ function CutawayWall({ hall, axis, sign }: WallProps) {
   const span = axis === 'x' ? hall.length : hall.width;
   const boundary = (axis === 'x' ? hall.width : hall.length) / 2;
   const panelCount = Math.max(1, Math.ceil(span / 3));
-  useFrame(({ camera }) => {
+  useFrame(({ camera, invalidate }) => {
     if (!group.current) return;
     // Cut away near walls only for exterior viewpoints, including picking.
     const visible = camera.position[axis] * sign < boundary + 0.15;
     if (group.current.visible !== visible) {
       group.current.visible = visible;
       group.current.traverse(object => object.layers.set(visible ? 0 : 31));
+      invalidate();
     }
   });
   return (

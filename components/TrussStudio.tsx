@@ -7,7 +7,7 @@ import {
   Copy,
   Download,
   Edit3,
-  FileDown,
+  Construction,
   Plus,
   Printer,
   Trash2,
@@ -257,7 +257,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
   };
 
   const handleDeleteEvent = async (eventId: string) => {
-    if (!confirm('確定要刪除這個場次？場次內的 Truss 結構也會刪除。')) return;
+    if (!confirm(`確定要刪除場次「${events.find(event => event.id === eventId)?.name ?? '未命名場次'}」？場次內的 Truss 結構也會刪除。`)) return;
 
     try {
       await runMutation(
@@ -400,7 +400,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
 
   const handleDelete = async (entry: TrussStudioEntry) => {
     if (!selectedEventId) return;
-    if (!confirm('確定要刪除這個 Truss 結構？')) return;
+    if (!confirm(`確定要刪除 Truss 結構「${formatTrussTitle(entry.config, entry.config.quantity)}」？`)) return;
 
     try {
       await runMutation(
@@ -442,29 +442,27 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
   };
 
   const saveBadge = saveText && (
-    <span className={`text-xs font-semibold px-2.5 py-1 rounded-md ${saveState === 'error' ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
+    <span className={`text-xs font-medium px-2 py-1 rounded-lg ${saveState === 'error' ? 'bg-red-50 text-red-600' : saveState === 'saved' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
       {saveText}
     </span>
   );
 
   const renderEventList = () => (
-    <div className="scene-mgr relative z-10 max-w-5xl mx-auto px-6 py-8 md:py-12">
-      <header className="card-animate mb-8" style={{ animationDelay: '0ms' }}>
+    <div className="page-shell">
+      <header className="animate-slide-up mb-8" style={{ animationDelay: '0ms' }}>
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={handleBack}
               disabled={navigatingBack}
-              className="w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 flex items-center justify-center disabled:opacity-50"
+              className="ui-icon-btn"
+              aria-label="返回首頁"
               title={navigatingBack ? '儲存中...' : '返回首頁'}
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
-              <FileDown className="w-4 h-4 text-white" strokeWidth={2.5} />
-            </div>
             <div className="min-w-0">
-              <h1 className="text-2xl font-bold gradient-text tracking-tight">Truss 工作台</h1>
+              <h1 className="page-title">Truss 工作台</h1>
             </div>
           </div>
           {saveBadge}
@@ -472,7 +470,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
       </header>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl card-animate flex items-center justify-between gap-3">
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl animate-slide-up flex items-center justify-between gap-3">
           <span>{error}</span>
           {retryAction && (
             <button
@@ -483,7 +481,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                 setError(null);
                 retry();
               }}
-              className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-md transition-colors shrink-0"
+              className="ui-btn-secondary shrink-0"
             >
               重試
             </button>
@@ -492,9 +490,9 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div className="card-animate" style={stagger(0)}>
+        <div className="animate-slide-up" style={stagger(0)}>
           {creatingEvent ? (
-            <div className="new-card p-5 flex flex-col gap-3" style={{ borderStyle: 'solid', borderColor: 'rgba(56,100,220,0.4)' }}>
+            <div className="ui-card p-4 flex flex-col gap-3">
               <p className="text-sm font-medium text-slate-600">新場次名稱</p>
               <input
                 ref={newEventInputRef}
@@ -502,6 +500,8 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                 value={newEventName}
                 onChange={e => setNewEventName(e.target.value)}
                 onKeyDown={e => {
+                  // Enter/Esc that confirm or dismiss an IME candidate must not submit a half-typed name.
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                   if (e.key === 'Enter') handleCreateEvent();
                   if (e.key === 'Escape') {
                     setCreatingEvent(false);
@@ -509,13 +509,13 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                   }
                 }}
                 placeholder="輸入名稱..."
-                className="create-input px-4 py-2.5 text-sm w-full"
+                className="ui-input"
               />
               <div className="flex gap-2">
                 <button
                   onClick={handleCreateEvent}
                   disabled={mutationDisabled}
-                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+                  className="ui-btn-primary flex-1"
                 >
                   建立
                 </button>
@@ -525,7 +525,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                     setCreatingEvent(false);
                     setNewEventName('');
                   }}
-                  className="px-4 py-2 text-slate-400 hover:text-slate-600 text-sm transition-colors"
+                  className="ui-btn-ghost"
                 >
                   取消
                 </button>
@@ -535,14 +535,14 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
             <button
               onClick={() => setCreatingEvent(true)}
               disabled={mutationDisabled}
-              className="new-card w-full h-full min-h-[180px] flex flex-col items-center justify-center gap-3 p-6"
+              className="new-entity-card w-full h-full min-h-[200px] flex flex-col items-center justify-center gap-3 p-6"
             >
-              <div className="plus-ring w-12 h-12 rounded-full border-2 border-blue-500/30 flex items-center justify-center">
-                <Plus className="w-5 h-5 text-blue-400" />
+              <div className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center">
+                <Plus className="w-5 h-5 text-blue-600" />
               </div>
               <div className="text-center">
                 <p className="text-sm font-medium text-slate-600">新增場次</p>
-                <p className="text-xs text-slate-400 mt-0.5">建立空白 Truss 場次</p>
+                <p className="text-xs text-slate-500 mt-0.5">建立空白 Truss 場次</p>
               </div>
             </button>
           )}
@@ -551,9 +551,9 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
         {loading && (
           <>
             {[0, 1, 2].map(i => (
-              <div key={i} className="card-animate" style={stagger(i + 1)}>
-                <div className="scene-card p-0">
-                  <div className="h-28 bg-slate-100 animate-pulse" />
+              <div key={i} className="animate-slide-up" style={stagger(i + 1)}>
+                <div className="entity-card p-0">
+                  <div className="aspect-video bg-slate-100 animate-pulse" />
                   <div className="p-4 space-y-2">
                     <div className="h-4 w-28 bg-slate-100 rounded animate-pulse" />
                     <div className="h-3 w-20 bg-slate-50 rounded animate-pulse" />
@@ -565,27 +565,30 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
         )}
 
         {!loading && events.map((event, i) => (
-          <div key={event.id} className="card-animate" style={stagger(i + 1)}>
-            <div
-              className="scene-card"
-              onClick={() => {
-                if (!mutationDisabled && !renamingEventId) setSelectedEventId(event.id);
-              }}
-            >
-              <div className="h-28 bg-gradient-to-br from-slate-50 to-slate-100 overflow-hidden relative">
-                <div className="card-thumb w-full h-full flex items-center justify-center">
+          <div key={event.id} className="animate-slide-up" style={stagger(i + 1)}>
+            <div className="entity-card">
+              <button
+                className="absolute inset-0 z-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-600"
+                aria-label={`開啟場次 ${event.name}`}
+                disabled={mutationDisabled || !!renamingEventId}
+                onClick={() => {
+                  if (!mutationDisabled && !renamingEventId) setSelectedEventId(event.id);
+                }}
+              />
+              <div className="entity-card-thumb pointer-events-none relative">
+                <div className="w-full h-full flex items-center justify-center">
                   <div className="relative">
                     <div className="w-16 h-11 rounded border border-slate-200 bg-white flex items-center justify-center">
-                      <CalendarDays className="w-5 h-5 text-slate-300" />
+                      <CalendarDays className="w-5 h-5 text-slate-400" />
                     </div>
-                    <div className="absolute -bottom-1 -right-1 min-w-6 h-5 rounded bg-blue-100 border border-blue-300 px-1 flex items-center justify-center text-[10px] font-bold text-blue-600">
+                    <div className="absolute -bottom-1 -right-1 min-w-6 h-6 rounded-full bg-blue-50 px-2 flex items-center justify-center text-xs font-medium text-blue-700">
                       {event.structures.length}
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="p-4 flex items-start justify-between">
+              <div className="pointer-events-none relative p-4 flex items-start justify-between">
                 <div className="min-w-0 flex-1">
                   {renamingEventId === event.id ? (
                     <input
@@ -596,43 +599,46 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                       onChange={e => setRenameValue(e.target.value)}
                       onBlur={() => commitRenameEvent(event.id)}
                       onKeyDown={e => {
+                        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                         if (e.key === 'Enter') commitRenameEvent(event.id);
                         if (e.key === 'Escape') cancelRenameEvent();
                       }}
-                      className="create-input w-full px-2.5 py-1.5 text-sm font-medium text-slate-700"
+                      className="ui-input pointer-events-auto"
                     />
                   ) : (
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <h3 className="text-sm font-medium text-slate-700 truncate">{event.name}</h3>
+                      <h3 className="text-sm font-semibold text-slate-900 truncate">{event.name}</h3>
                       <button
                         disabled={mutationDisabled}
                         onClick={(e) => startRenameEvent(e, event)}
-                        className="shrink-0 p-1 rounded-md text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+                        className="ui-icon-btn min-h-9 min-w-9 pointer-events-auto entity-card-actions shrink-0"
+                        aria-label={`重新命名場次 ${event.name}`}
                         title="重新命名"
                       >
                         <Edit3 className="w-3 h-3" />
                       </button>
                     </div>
                   )}
-                  <p className="text-xs text-slate-400 mt-1">{event.structures.length} 座結構</p>
+                  <p className="text-xs text-slate-500 mt-1">{event.structures.length} 座結構</p>
                   <div className="flex items-center gap-1.5 mt-1.5">
-                    <Clock className="w-3 h-3 text-slate-300" />
-                    <span className="text-xs text-slate-400">{formatDate(event.updated_at)}</span>
+                    <Clock className="w-3 h-3 text-slate-500" />
+                    <span className="text-xs text-slate-500">更新於 {formatDate(event.updated_at)}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 ml-2">
+                <div className="entity-card-actions pointer-events-auto flex items-center gap-1 ml-2">
                   <button
                     disabled={mutationDisabled}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleDeleteEvent(event.id);
                     }}
-                    className="delete-btn p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                    className="ui-icon-btn min-h-9 min-w-9 hover:bg-red-50 hover:text-red-600"
+                    aria-label={`刪除場次 ${event.name}`}
                     title="刪除"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
-                  <div className="card-arrow p-1.5 text-blue-400">
+                  <div className="p-1.5 text-slate-400">
                     <ArrowRight className="w-3.5 h-3.5" />
                   </div>
                 </div>
@@ -641,14 +647,14 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
           </div>
         ))}
 
-        {!loading && events.length === 0 && (
-          <div className="card-animate col-span-full sm:col-span-1 lg:col-span-2 flex items-center justify-center py-12" style={stagger(1)}>
+        {!loading && hasLoaded && !error && events.length === 0 && (
+          <div className="animate-slide-up col-span-full sm:col-span-1 lg:col-span-2 flex items-center justify-center py-12" style={stagger(1)}>
             <div className="text-center">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center">
-                <FileDown className="w-6 h-6 text-slate-300" />
+              <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-slate-50 flex items-center justify-center">
+                <Construction className="w-6 h-6 text-slate-400" />
               </div>
-              <p className="text-sm text-slate-400">還沒有場次</p>
-              <p className="text-xs text-slate-300 mt-1">點左側新增第一個 Truss 場次</p>
+              <p className="text-sm text-slate-600">還沒有場次</p>
+              <p className="text-xs text-slate-500 mt-1">新增第一個 Truss 場次</p>
             </div>
           </div>
         )}
@@ -657,23 +663,24 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
   );
 
   const renderEventDetail = (event: TrussStudioEvent) => (
-    <div className="max-w-6xl mx-auto px-6 py-8 md:py-10">
-      <header className="truss-no-print bg-white border border-slate-200 rounded-lg shadow-sm p-4 mb-5">
+    <div className="page-shell">
+      <header className="truss-no-print ui-card p-4 mb-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={handleBackToEvents}
               disabled={navigatingBack}
-              className="w-9 h-9 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 flex items-center justify-center disabled:opacity-50"
+              className="ui-icon-btn"
+              aria-label="返回場次列表"
               title={navigatingBack ? '儲存中...' : '返回場次列表'}
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
-            <div className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center">
-              <FileDown className="w-4 h-4" />
+            <div className="w-9 h-9 rounded-lg bg-slate-50 text-slate-600 flex items-center justify-center">
+              <Construction className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-xl font-bold text-slate-800 truncate">{event.name}</h1>
+              <h1 className="page-title truncate">{event.name}</h1>
             </div>
           </div>
 
@@ -682,7 +689,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
             <button
               onClick={() => setBuilder({ mode: 'new' })}
               disabled={mutationDisabled}
-              className="h-9 px-3 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 flex items-center gap-1.5"
+              className="ui-btn-primary"
             >
               <Plus className="w-3.5 h-3.5" />
               新增結構
@@ -690,7 +697,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
             <button
               onClick={handleDownloadAll}
               disabled={structures.length === 0}
-              className="h-9 px-3 rounded-lg bg-white border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1.5"
+              className="ui-btn-secondary"
             >
               <Download className="w-3.5 h-3.5" />
               全部 PNG
@@ -698,7 +705,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
             <button
               onClick={() => window.print()}
               disabled={structures.length === 0}
-              className="h-9 px-3 rounded-lg bg-white border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1.5"
+              className="ui-btn-secondary"
             >
               <Printer className="w-3.5 h-3.5" />
               列印
@@ -719,7 +726,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                 setError(null);
                 retry();
               }}
-              className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-md transition-colors shrink-0"
+              className="ui-btn-secondary shrink-0"
             >
               重試
             </button>
@@ -728,16 +735,16 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
       )}
 
       {structures.length === 0 ? (
-        <div className="truss-no-print bg-white border border-slate-200 rounded-lg shadow-sm p-12 text-center">
+        <div className="truss-no-print ui-card p-8 text-center">
           <div className="w-14 h-14 mx-auto mb-4 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center">
-            <FileDown className="w-6 h-6 text-blue-500" />
+            <Construction className="w-6 h-6 text-blue-600" />
           </div>
-          <h2 className="text-sm font-bold text-slate-700">尚未建立 Truss 結構</h2>
-          <p className="text-xs text-slate-400 mt-1 mb-5">新增第一個結構後，這裡會顯示 2D 結構圖與 BOM。</p>
+          <h2 className="text-sm font-semibold text-slate-900">尚未建立 Truss 結構</h2>
+          <p className="text-xs text-slate-500 mt-1 mb-5">新增第一個結構後，這裡會顯示 2D 結構圖與 BOM。</p>
           <button
             onClick={() => setBuilder({ mode: 'new' })}
             disabled={mutationDisabled}
-            className="h-9 px-4 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 inline-flex items-center gap-1.5"
+            className="ui-btn-secondary"
           >
             <Plus className="w-3.5 h-3.5" />
             新增結構
@@ -758,7 +765,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                   <button
                     onClick={() => setBuilder({ mode: 'edit', id: entry.id })}
                     disabled={mutationDisabled}
-                    className="h-8 px-2.5 rounded-lg bg-white border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 flex items-center gap-1.5"
+                    className="ui-btn-secondary"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
                     編輯
@@ -766,7 +773,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                   <button
                     onClick={() => handleDuplicate(entry)}
                     disabled={mutationDisabled}
-                    className="h-8 px-2.5 rounded-lg bg-white border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 flex items-center gap-1.5"
+                    className="ui-btn-secondary"
                   >
                     <Copy className="w-3.5 h-3.5" />
                     複製
@@ -774,7 +781,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
                   <button
                     onClick={() => handleDelete(entry)}
                     disabled={mutationDisabled}
-                    className="h-8 px-2.5 rounded-lg bg-white border border-red-100 text-red-500 text-xs font-semibold hover:bg-red-50 flex items-center gap-1.5"
+                    className="ui-btn-danger"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     刪除
@@ -791,110 +798,14 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
   );
 
   return (
-    <div className="h-screen bg-[#f5f5f7] text-slate-800 overflow-y-auto">
-      <style>
-        {`
-          @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,300&display=swap');
-          .scene-mgr * { font-family: 'DM Sans', sans-serif; }
-          .scene-mgr { position: relative; }
-          @keyframes fadeSlideUp {
-            from { opacity: 0; transform: translateY(16px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-          .card-animate {
-            opacity: 0;
-            animation: fadeSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-          }
-          .scene-card {
-            position: relative;
-            background: #ffffff;
-            border: 1px solid rgba(0,0,0,0.06);
-            border-radius: 16px;
-            overflow: hidden;
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-          }
-          .scene-card:hover {
-            border-color: rgba(0,0,0,0.1);
-            transform: translateY(-4px);
-            box-shadow: 0 12px 32px -8px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04);
-          }
-          .scene-card:hover .card-thumb {
-            transform: scale(1.05);
-          }
-          .scene-card:hover .card-arrow {
-            opacity: 1;
-            transform: translateX(0);
-          }
-          .scene-card:hover .delete-btn {
-            opacity: 1;
-          }
-          .card-thumb {
-            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-          }
-          .card-arrow {
-            opacity: 0;
-            transform: translateX(-8px);
-            transition: all 0.3s ease;
-          }
-          .delete-btn {
-            opacity: 0;
-            transition: opacity 0.2s ease;
-          }
-          .new-card {
-            background: #ffffff;
-            border: 1px dashed rgba(56,100,220,0.35);
-            border-radius: 16px;
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-          }
-          .new-card:hover {
-            border-color: rgba(56,100,220,0.6);
-            background: rgba(56,100,220,0.04);
-            transform: translateY(-4px);
-            box-shadow: 0 12px 32px -8px rgba(56,100,220,0.15);
-          }
-          .new-card:hover .plus-ring {
-            transform: scale(1.1);
-            border-color: rgba(56,100,220,0.8);
-            background: rgba(56,100,220,0.1);
-          }
-          .plus-ring {
-            transition: all 0.3s ease;
-          }
-          .create-input {
-            background: #f8f9fb;
-            border: 1px solid rgba(0,0,0,0.1);
-            border-radius: 12px;
-            color: #1e293b;
-            outline: none;
-            transition: border-color 0.2s ease;
-          }
-          .create-input:focus {
-            border-color: rgba(56,100,220,0.6);
-            box-shadow: 0 0 0 3px rgba(56,100,220,0.1);
-          }
-          .create-input::placeholder { color: rgba(0,0,0,0.3); }
-          .gradient-text {
-            background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-          }
-          @media print {
-            body * { visibility: hidden; }
-            .truss-studio-print-area, .truss-studio-print-area * { visibility: visible; }
-            .truss-studio-print-area { position: absolute; inset: 0; background: white; overflow: visible !important; padding: 0 !important; }
-            .truss-no-print { display: none !important; }
-            .truss-print-card { break-after: page; page-break-after: always; box-shadow: none !important; border: 0 !important; }
-          }
-        `}
-      </style>
+    <div className="h-screen bg-slate-100 text-slate-900 overflow-y-auto">
 
       {selectedEvent ? renderEventDetail(selectedEvent) : renderEventList()}
 
       {builder && selectedEvent && (
         <TrussBuilderModal
+          // Remount per target so a draft opened for one structure can never be saved onto another.
+          key={builder.mode === 'edit' ? builder.id : 'new'}
           initialConfig={editingEntry?.config}
           onClose={() => setBuilder(null)}
           onSubmit={handleSubmit}

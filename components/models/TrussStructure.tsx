@@ -681,7 +681,7 @@ export const TrussStructureModel: React.FC<TrussStructureModelProps> = ({
       {config.kind === 'CUSTOM' && renderCustomStructure()}
 
       {selected && isEditMode && (
-        <mesh position={[0, Math.max(height, 0.4) / 2, config.kind === 'CUSTOM' ? 0 : -depth / 2]}>
+        <mesh raycast={() => null} position={[0, Math.max(height, 0.4) / 2, config.kind === 'CUSTOM' ? 0 : -depth / 2]}>
           <boxGeometry
             args={[
               Math.max(config.kind === 'CUSTOM' ? customWidth : width, CROSS_SECTION) + 0.5,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Box, Clock, Sparkles, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Plus, Trash2, LayoutGrid, ArrowLeft } from 'lucide-react';
 import { scenesApi, SceneMeta } from '../services/scenesApi';
 
 interface SceneManagerProps {
@@ -26,7 +26,7 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew, onBac
       setScenes(list);
       setError(null);
     } catch (err: any) {
-      setError(err.message || 'Failed to load scenes');
+      setError(err.message || '載入場景失敗');
     } finally {
       setLoading(false);
     }
@@ -35,21 +35,30 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew, onBac
   useEffect(() => { fetchScenes(); }, []);
   useEffect(() => { if (creating) inputRef.current?.focus(); }, [creating]);
 
+  const [submitting, setSubmitting] = useState(false);
+  // A ref, not state: two clicks in the same frame both see `submitting === false` before React re-renders.
+  const submittingRef = useRef(false);
   const handleCreate = async () => {
-    if (!newName.trim()) return;
+    // One POST per click/Enter: a double click or held Enter used to create duplicate scenes.
+    if (!newName.trim() || submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
     try {
       const scene = await scenesApi.create(newName.trim());
       setCreating(false);
       setNewName('');
       onNew(scene.id);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '建立場景失敗，請稍後再試。');
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
     }
   };
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (!confirm('確定要刪除這個場景？')) return;
+    if (!confirm(`確定要刪除場景「${scenes.find(scene => scene.id === id)?.name ?? '未命名場景'}」？`)) return;
     try {
       await scenesApi.delete(id);
       setScenes(prev => prev.filter(s => s.id !== id));
@@ -73,252 +82,51 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew, onBac
   };
 
   return (
-    <div className="h-screen bg-[#f5f5f7] text-slate-800 overflow-y-auto">
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,300&display=swap');
-        .scene-mgr * { font-family: 'DM Sans', sans-serif; }
-        .scene-mgr { position: relative; }
-        @keyframes fadeSlideUp {
-          from { opacity: 0; transform: translateY(16px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .card-animate {
-          opacity: 0;
-          animation: fadeSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-        .scene-card {
-          position: relative;
-          background: #ffffff;
-          border: 1px solid rgba(0,0,0,0.06);
-          border-radius: 16px;
-          overflow: hidden;
-          cursor: pointer;
-          transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .scene-card:hover {
-          border-color: rgba(0,0,0,0.1);
-          transform: translateY(-4px);
-          box-shadow: 0 12px 32px -8px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04);
-        }
-        .scene-card:hover .card-thumb {
-          transform: scale(1.05);
-        }
-        .scene-card:hover .card-arrow {
-          opacity: 1;
-          transform: translateX(0);
-        }
-        .scene-card:hover .delete-btn {
-          opacity: 1;
-        }
-        .card-thumb {
-          transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .card-arrow {
-          opacity: 0;
-          transform: translateX(-8px);
-          transition: all 0.3s ease;
-        }
-        .delete-btn {
-          opacity: 0;
-          transition: opacity 0.2s ease;
-        }
-        .new-card {
-          background: #ffffff;
-          border: 1px dashed rgba(56,100,220,0.35);
-          border-radius: 16px;
-          cursor: pointer;
-          transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .new-card:hover {
-          border-color: rgba(56,100,220,0.6);
-          background: rgba(56,100,220,0.04);
-          transform: translateY(-4px);
-          box-shadow: 0 12px 32px -8px rgba(56,100,220,0.15);
-        }
-        .new-card:hover .plus-ring {
-          transform: scale(1.1);
-          border-color: rgba(56,100,220,0.8);
-          background: rgba(56,100,220,0.1);
-        }
-        .plus-ring {
-          transition: all 0.3s ease;
-        }
-        .create-input {
-          background: #f8f9fb;
-          border: 1px solid rgba(0,0,0,0.1);
-          border-radius: 12px;
-          color: #1e293b;
-          outline: none;
-          transition: border-color 0.2s ease;
-        }
-        .create-input:focus {
-          border-color: rgba(56,100,220,0.6);
-          box-shadow: 0 0 0 3px rgba(56,100,220,0.1);
-        }
-        .create-input::placeholder { color: rgba(0,0,0,0.3); }
-        .gradient-text {
-          background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-        }
-      `}</style>
-
-      <div className="scene-mgr relative z-10 max-w-5xl mx-auto px-6 py-12 md:py-16">
-        {/* Header */}
-        <div className="card-animate mb-10" style={{ animationDelay: '0ms' }}>
-          <div className="flex items-center gap-3 mb-2">
-            <button
-              onClick={onBackHome}
-              className="w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 flex items-center justify-center"
-              title="返回首頁"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
-              <Box className="w-4.5 h-4.5 text-white" strokeWidth={2.5} />
-            </div>
-            <h1 className="text-2xl font-bold gradient-text tracking-tight">Banquet 3D</h1>
-          </div>
-          <p className="text-sm text-slate-400 ml-[6rem]">場景管理</p>
-        </div>
-
-        {/* Error */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl card-animate">
-            {error}
-          </div>
-        )}
-
-        {/* Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* New Scene Card */}
-          <div className="card-animate" style={stagger(0)}>
+    <div className="h-screen overflow-y-auto bg-slate-100">
+      <main className="page-shell space-y-6">
+        <header className="animate-slide-up flex items-start gap-3">
+          <button onClick={onBackHome} className="ui-icon-btn" aria-label="返回首頁"><ArrowLeft className="h-4 w-4" /></button>
+          <div><h1 className="page-title">場景</h1><p className="page-subtitle mt-2">{scenes.length} 個場景</p></div>
+        </header>
+        {error && <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600"><span>{error}</span><button className="ui-btn-secondary" onClick={fetchScenes} disabled={loading}>重試</button></div>}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="animate-slide-up" style={stagger(0)}>
             {creating ? (
-              <div className="new-card p-5 flex flex-col gap-3" style={{ borderStyle: 'solid', borderColor: 'rgba(56,100,220,0.4)' }}>
-                <p className="text-sm font-medium text-slate-600">新場景名稱</p>
-                <input
-                  ref={inputRef}
-                  value={newName}
-                  onChange={e => setNewName(e.target.value)}
+              <div className="ui-card flex flex-col gap-3 p-4">
+                <label htmlFor="new-scene-name" className="ui-label">新場景名稱</label>
+                <input id="new-scene-name" ref={inputRef} value={newName} onChange={e => setNewName(e.target.value)}
                   onKeyDown={e => {
+                    // Enter/Esc that confirm or dismiss an IME candidate must not create a half-typed scene.
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                     if (e.key === 'Enter') handleCreate();
                     if (e.key === 'Escape') { setCreating(false); setNewName(''); }
                   }}
-                  placeholder="輸入名稱..."
-                  className="create-input px-4 py-2.5 text-sm w-full"
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleCreate}
-                    className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
-                  >
-                    建立
-                  </button>
-                  <button
-                    onClick={() => { setCreating(false); setNewName(''); }}
-                    className="px-4 py-2 text-slate-400 hover:text-slate-600 text-sm transition-colors"
-                  >
-                    取消
-                  </button>
-                </div>
+                  placeholder="輸入名稱…" className="ui-input" />
+                <div className="flex gap-2"><button onClick={handleCreate} disabled={submitting} className="ui-btn-primary flex-1">{submitting ? '建立中…' : '建立'}</button><button onClick={() => { setCreating(false); setNewName(''); }} className="ui-btn-ghost">取消</button></div>
               </div>
             ) : (
-              <button
-                onClick={() => setCreating(true)}
-                className="new-card w-full h-full min-h-[180px] flex flex-col items-center justify-center gap-3 p-6"
-              >
-                <div className="plus-ring w-12 h-12 rounded-full border-2 border-blue-500/30 flex items-center justify-center">
-                  <Plus className="w-5 h-5 text-blue-400" />
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-medium text-slate-600">新增場景</p>
-                  <p className="text-xs text-slate-400 mt-0.5">建立空白場景</p>
-                </div>
+              <button onClick={() => setCreating(true)} className="new-entity-card flex h-full min-h-[120px] sm:min-h-[200px] w-full flex-col items-center justify-center gap-3 p-6">
+                <Plus className="h-6 w-6 text-blue-600" /><span className="text-sm font-medium text-slate-900">新增場景</span><span className="text-xs text-slate-500">建立空白場景</span>
               </button>
             )}
           </div>
-
-          {/* Loading */}
-          {loading && (
-            <>
-              {[0, 1, 2].map(i => (
-                <div key={i} className="card-animate" style={stagger(i + 1)}>
-                  <div className="scene-card p-0">
-                    <div className="h-28 bg-slate-100 animate-pulse" />
-                    <div className="p-4 space-y-2">
-                      <div className="h-4 w-24 bg-slate-100 rounded animate-pulse" />
-                      <div className="h-3 w-16 bg-slate-50 rounded animate-pulse" />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
-
-          {/* Scene Cards */}
+          {loading && [0, 1, 2].map(i => <div key={i} className="ui-card overflow-hidden" aria-label="載入中"><div className="aspect-video animate-pulse bg-slate-200" /><div className="p-4"><div className="h-4 w-24 animate-pulse rounded bg-slate-100" /></div></div>)}
           {!loading && scenes.map((scene, i) => (
-            <div key={scene.id} className="card-animate" style={stagger(i + 1)}>
-              <div
-                className="scene-card"
-                onClick={() => onLoad(scene.id)}
-              >
-                {/* Thumbnail */}
-                <div className="h-28 bg-gradient-to-br from-slate-50 to-slate-100 overflow-hidden relative">
-                  {scene.thumbnail ? (
-                    <img src={scene.thumbnail} alt="" className="card-thumb w-full h-full object-cover" />
-                  ) : (
-                    <div className="card-thumb w-full h-full flex items-center justify-center">
-                      <div className="relative">
-                        <div className="w-14 h-10 rounded border border-slate-200 bg-white flex items-center justify-center">
-                          <Sparkles className="w-4 h-4 text-slate-300" />
-                        </div>
-                        <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-sm bg-blue-100 border border-blue-300" />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Info */}
-                <div className="p-4 flex items-start justify-between">
-                  <div className="min-w-0 flex-1">
-                    <h3 className="text-sm font-medium text-slate-700 truncate">{scene.name}</h3>
-                    <div className="flex items-center gap-1.5 mt-1.5">
-                      <Clock className="w-3 h-3 text-slate-300" />
-                      <span className="text-xs text-slate-400">{formatDate(scene.updated_at)}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 ml-2">
-                    <button
-                      onClick={(e) => handleDelete(e, scene.id)}
-                      className="delete-btn p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-                      title="刪除"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                    <div className="card-arrow p-1.5 text-blue-400">
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </div>
-                  </div>
-                </div>
+            <div key={scene.id} className="entity-card animate-slide-up" style={stagger(i + 1)} role="button" tabIndex={0}
+              aria-label={`開啟場景 ${scene.name}`} onClick={() => onLoad(scene.id)}
+              onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onLoad(scene.id); } }}>
+              <div className="entity-card-thumb">
+                {scene.thumbnail ? <img src={scene.thumbnail} alt="" className="h-full w-full object-cover" /> : <LayoutGrid className="h-6 w-6 text-slate-400" />}
+              </div>
+              <div className="flex items-center justify-between gap-2 p-4">
+                <div className="min-w-0"><h3 className="truncate text-sm font-semibold text-slate-900">{scene.name}</h3><p className="mt-1 text-xs text-slate-500">更新於 {formatDate(scene.updated_at)}</p></div>
+                <div className="entity-card-actions"><button onClick={e => handleDelete(e, scene.id)} className="ui-icon-btn min-h-9 min-w-9 hover:bg-red-50 hover:text-red-600" aria-label={`刪除場景 ${scene.name}`}><Trash2 className="h-4 w-4" /></button></div>
               </div>
             </div>
           ))}
-
-          {/* Empty state */}
-          {!loading && scenes.length === 0 && (
-            <div className="card-animate col-span-full sm:col-span-1 lg:col-span-2 flex items-center justify-center py-12" style={stagger(1)}>
-              <div className="text-center">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center">
-                  <Box className="w-6 h-6 text-slate-300" />
-                </div>
-                <p className="text-sm text-slate-400">還沒有場景</p>
-                <p className="text-xs text-slate-300 mt-1">點左側新增你的第一個場景</p>
-              </div>
-            </div>
-          )}
+          {!loading && !error && scenes.length === 0 && <div className="col-span-full flex flex-col items-center justify-center gap-2 py-12 sm:col-span-1 lg:col-span-2"><LayoutGrid className="mb-2 h-8 w-8 text-slate-400" /><p className="text-sm text-slate-600">還沒有場景</p><p className="text-xs text-slate-500">新增你的第一個場景</p></div>}
         </div>
-      </div>
+      </main>
     </div>
   );
 };

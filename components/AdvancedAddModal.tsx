@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import {
-  PlusSquare, X, List, Grid3X3
-} from 'lucide-react';
-import { BanquetObject, ObjectType, HallConfig } from '../types';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { X } from 'lucide-react';
+import { ObjectType } from '../types';
+import type { BanquetObject, HallConfig } from '../types';
 import { createObjectConfig } from '../constants';
+import { getObjectLabel } from './objectTypeMeta';
 
 interface AdvancedAddModalProps {
   onClose: () => void;
@@ -13,6 +13,35 @@ interface AdvancedAddModalProps {
 
 export const AdvancedAddModal: React.FC<AdvancedAddModalProps> = ({ onClose, onAddObjects, hall }) => {
   const [activeTab, setActiveTab] = useState<'SIMPLE' | 'GRID'>('SIMPLE');
+  const id = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onCloseRef.current();
+      }
+      if (event.key === 'Tab') {
+        const controls = dialogRef.current?.querySelectorAll<HTMLElement>('button, input, select');
+        if (!controls?.length) return;
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+    };
+    window.addEventListener('keydown', handleKey, true);
+    return () => {
+      window.removeEventListener('keydown', handleKey, true);
+      previousFocus?.focus();
+    };
+  }, []);
 
   // Simple Mode State
   const [counts, setCounts] = useState<Record<string, number>>({
@@ -35,8 +64,8 @@ export const AdvancedAddModal: React.FC<AdvancedAddModalProps> = ({ onClose, onA
   });
 
   const handleSimpleCountChange = (type: string, val: string) => {
-    const num = parseInt(val) || 0;
-    setCounts(prev => ({ ...prev, [type]: Math.max(0, num) }));
+    const num = Number(val);
+    setCounts(prev => ({ ...prev, [type]: Number.isFinite(num) ? Math.min(1000, Math.max(0, Math.trunc(num))) : 0 }));
   };
 
   const generateSimpleObjects = () => {
@@ -120,145 +149,68 @@ export const AdvancedAddModal: React.FC<AdvancedAddModalProps> = ({ onClose, onA
     : gridConfig.rows * gridConfig.cols;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-[500px] border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
-
-        {/* Header */}
-        <div className="flex justify-between items-center p-4 border-b border-slate-100">
-          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-            <PlusSquare className="w-4 h-4 text-blue-600" /> 新增物件 (Add Objects)
-          </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            <X className="w-4 h-4" />
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} className="flex max-h-[90dvh] w-full max-w-[500px] flex-col rounded-xl bg-white shadow-xl animate-scale-in">
+        <header className="flex shrink-0 items-center justify-between p-4">
+          <h2 id={`${id}-title`} className="text-base font-semibold">批次新增</h2>
+          <button ref={closeRef} type="button" onClick={onClose} className="ui-icon-btn" aria-label="關閉"><X className="h-4 w-4" /></button>
+        </header>
+        <div className="ui-segmented mx-4 flex" role="tablist" aria-label="新增方式">
+          <button type="button" role="tab" aria-selected={activeTab === 'SIMPLE'} className="ui-segment flex-1" onClick={() => setActiveTab('SIMPLE')}>快速數量</button>
+          <button type="button" role="tab" aria-selected={activeTab === 'GRID'} className="ui-segment flex-1" onClick={() => setActiveTab('GRID')}>排桌陣列</button>
         </div>
-
-        {/* Tabs */}
-        <div className="flex border-b border-slate-100">
-          <button
-            onClick={() => setActiveTab('SIMPLE')}
-            className={`flex-1 py-3 text-xs font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'SIMPLE' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            <List className="w-3 h-3" /> 快速數量 (Simple)
-          </button>
-          <button
-            onClick={() => setActiveTab('GRID')}
-            className={`flex-1 py-3 text-xs font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'GRID' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            <Grid3X3 className="w-3 h-3" /> 進階排桌 (Layout)
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-5 overflow-y-auto flex-1">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {activeTab === 'SIMPLE' ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500">圓桌 (Round)</label>
-                  <input type="number" min="0" className="w-full border rounded px-2 py-1.5 text-sm"
-                    value={counts[ObjectType.ROUND_TABLE] || ''} onChange={e => handleSimpleCountChange(ObjectType.ROUND_TABLE, e.target.value)} placeholder="0" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500">長桌 (Rect)</label>
-                  <input type="number" min="0" className="w-full border rounded px-2 py-1.5 text-sm"
-                    value={counts[ObjectType.RECT_TABLE] || ''} onChange={e => handleSimpleCountChange(ObjectType.RECT_TABLE, e.target.value)} placeholder="0" />
-                </div>
-              </div>
-              <hr className="border-slate-100" />
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500">LED 帕燈</label>
-                  <input type="number" min="0" className="w-full border rounded px-2 py-1.5 text-sm"
-                    value={counts[ObjectType.LIGHT_PAR] || ''} onChange={e => handleSimpleCountChange(ObjectType.LIGHT_PAR, e.target.value)} placeholder="0" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500">電腦燈</label>
-                  <input type="number" min="0" className="w-full border rounded px-2 py-1.5 text-sm"
-                    value={counts[ObjectType.LIGHT_MOVING] || ''} onChange={e => handleSimpleCountChange(ObjectType.LIGHT_MOVING, e.target.value)} placeholder="0" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500">15吋喇叭</label>
-                  <input type="number" min="0" className="w-full border rounded px-2 py-1.5 text-sm"
-                    value={counts[ObjectType.SPEAKER_15] || ''} onChange={e => handleSimpleCountChange(ObjectType.SPEAKER_15, e.target.value)} placeholder="0" />
-                </div>
-              </div>
+            <div className="grid grid-cols-2 gap-4">
+              {[ObjectType.ROUND_TABLE, ObjectType.RECT_TABLE, ObjectType.LIGHT_PAR, ObjectType.LIGHT_MOVING, ObjectType.SPEAKER_15].map(type => <div key={type} className="space-y-1.5">
+                <label htmlFor={`${id}-${type}`} className="ui-label">{getObjectLabel(type)}</label>
+                <input id={`${id}-${type}`} type="number" min={0} max={1000} step={1} value={counts[type]} onChange={event => handleSimpleCountChange(type, event.target.value)} className="ui-input" />
+              </div>)}
             </div>
           ) : (
-            <div className="space-y-5">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-700 uppercase">桌型選擇 (Type)</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="radio" name="tableType"
-                      checked={gridConfig.type === ObjectType.ROUND_TABLE}
-                      onChange={() => setGridConfig({ ...gridConfig, type: ObjectType.ROUND_TABLE })}
-                      className="text-blue-600"
-                    /> 圓桌 (Round)
-                  </label>
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="radio" name="tableType"
-                      checked={gridConfig.type === ObjectType.RECT_TABLE}
-                      onChange={() => setGridConfig({ ...gridConfig, type: ObjectType.RECT_TABLE })}
-                      className="text-blue-600"
-                    /> 長桌 (Rect)
-                  </label>
-                </div>
+            <div className="space-y-6">
+              <div className="space-y-1.5">
+                <label htmlFor={`${id}-type`} className="ui-label">桌型</label>
+                <select id={`${id}-type`} className="ui-input" value={gridConfig.type} onChange={event => setGridConfig(prev => ({ ...prev, type: event.target.value as ObjectType }))}>
+                  <option value={ObjectType.ROUND_TABLE}>圓桌</option><option value={ObjectType.RECT_TABLE}>長桌</option>
+                </select>
               </div>
-
-              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded-lg border border-slate-100">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500">排 (Rows)</label>
-                  <input type="number" min="1" max="50" className="w-full border rounded px-2 py-1.5 text-sm"
-                    value={gridConfig.rows} onChange={(e) => setGridConfig({ ...gridConfig, rows: parseInt(e.target.value) || 1 })} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500">列 (Columns)</label>
-                  <input type="number" min="1" max="20" className="w-full border rounded px-2 py-1.5 text-sm"
-                    value={gridConfig.cols} onChange={(e) => setGridConfig({ ...gridConfig, cols: parseInt(e.target.value) || 1 })} />
-                </div>
-              </div>
-
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500">前後桌距 (Z Spacing - m)</label>
-                  <input type="number" step="0.1" className="w-full border rounded px-2 py-1.5 text-sm"
-                    value={gridConfig.spacingZ} onChange={(e) => setGridConfig({ ...gridConfig, spacingZ: parseFloat(e.target.value) || 0 })} />
-                  <div className="text-[10px] text-slate-400">總長度: {((gridConfig.rows - 1) * gridConfig.spacingZ).toFixed(1)}m (場地: {hall.length}m)</div>
+                <div className="space-y-1.5">
+                  <label htmlFor={`${id}-rows`} className="ui-label">排數</label>
+                  <input id={`${id}-rows`} type="number" min={1} max={50} step={1} value={gridConfig.rows} className="ui-input" onChange={event => setGridConfig(prev => ({ ...prev, rows: Math.min(50, Math.max(1, Math.trunc(Number(event.target.value) || 1))) }))} />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500">左右桌距 (X Spacing - m)</label>
-                  <input type="number" step="0.1" className="w-full border rounded px-2 py-1.5 text-sm"
-                    value={gridConfig.spacingX} onChange={(e) => setGridConfig({ ...gridConfig, spacingX: parseFloat(e.target.value) || 0 })} />
+                <div className="space-y-1.5">
+                  <label htmlFor={`${id}-cols`} className="ui-label">列數</label>
+                  <input id={`${id}-cols`} type="number" min={1} max={20} step={1} value={gridConfig.cols} className="ui-input" onChange={event => setGridConfig(prev => ({ ...prev, cols: Math.min(20, Math.max(1, Math.trunc(Number(event.target.value) || 1))) }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor={`${id}-spacing-z`} className="ui-label">前後桌距（公尺）</label>
+                  <input id={`${id}-spacing-z`} type="number" min={0} max={200} step={0.1} value={gridConfig.spacingZ} className="ui-input" onChange={event => setGridConfig(prev => ({ ...prev, spacingZ: Math.min(200, Math.max(0, Number(event.target.value) || 0)) }))} />
+                  <p className="text-xs leading-relaxed text-slate-500">總長度：{((gridConfig.rows - 1) * gridConfig.spacingZ).toFixed(1)} 公尺；場地：{hall.length} 公尺</p>
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor={`${id}-spacing-x`} className="ui-label">左右桌距（公尺）</label>
+                  <input id={`${id}-spacing-x`} type="number" min={0} max={200} step={0.1} value={gridConfig.spacingX} className="ui-input" onChange={event => setGridConfig(prev => ({ ...prev, spacingX: Math.min(200, Math.max(0, Number(event.target.value) || 0)) }))} />
                 </div>
               </div>
-
-              <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-indigo-700">中央走道 (Center Aisle)</label>
-                  <input type="checkbox" checked={gridConfig.hasAisle} onChange={(e) => setGridConfig({ ...gridConfig, hasAisle: e.target.checked })} className="toggle accent-indigo-600" />
+              <div className="space-y-3">
+                <div className="flex min-h-10 items-center justify-between">
+                  <label htmlFor={`${id}-aisle`} className="ui-label">中央走道</label>
+                  <input id={`${id}-aisle`} type="checkbox" checked={gridConfig.hasAisle} className="h-5 w-5 accent-blue-600" onChange={event => setGridConfig(prev => ({ ...prev, hasAisle: event.target.checked }))} />
                 </div>
-                {gridConfig.hasAisle && (
-                  <div className="space-y-1 animate-in slide-in-from-top-2">
-                    <label className="text-xs font-medium text-indigo-600">走道寬度 (m)</label>
-                    <input type="number" step="0.1" className="w-full border border-indigo-200 rounded px-2 py-1.5 text-sm"
-                      value={gridConfig.aisleWidth} onChange={(e) => setGridConfig({ ...gridConfig, aisleWidth: parseFloat(e.target.value) || 0 })} />
-                  </div>
-                )}
+                {gridConfig.hasAisle && <div className="space-y-1.5">
+                  <label htmlFor={`${id}-aisle-width`} className="ui-label">走道寬度（公尺）</label>
+                  <input id={`${id}-aisle-width`} type="number" min={0} max={200} step={0.1} value={gridConfig.aisleWidth} className="ui-input" onChange={event => setGridConfig(prev => ({ ...prev, aisleWidth: Math.min(200, Math.max(0, Number(event.target.value) || 0)) }))} />
+                </div>}
               </div>
             </div>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="p-4 border-t border-slate-100 flex gap-2 bg-slate-50/50 rounded-b-xl">
-          <button onClick={onClose} className="flex-1 py-2 text-xs font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors">
-            取消
-          </button>
-          <button onClick={handleConfirm} className="flex-1 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm flex items-center justify-center gap-2">
-            確認新增 ({totalTables} 物件)
-          </button>
-        </div>
+        <footer className="flex shrink-0 gap-3 p-4">
+          <button type="button" onClick={onClose} className="ui-btn-secondary flex-1">取消</button>
+          <button type="button" onClick={handleConfirm} className="ui-btn-primary flex-1">新增 {totalTables} 個物件</button>
+        </footer>
       </div>
     </div>
   );

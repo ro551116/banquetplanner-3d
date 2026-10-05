@@ -1,13 +1,15 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import * as THREE from 'three';
 import { BanquetObject, ObjectType, TrussStructureConfig } from './types';
 import { createObjectConfig, INITIAL_HALL } from './constants';
 import { cloneTrussConfig, getTrussDimensions } from './trussConfig';
 import { useObjects } from './hooks/useObjects';
 import { useDrawing } from './hooks/useDrawing';
-import { useSceneIO } from './hooks/useSceneIO';
+import { useSceneIO, captureThumbnail } from './hooks/useSceneIO';
 import { useKeyboard } from './hooks/useKeyboard';
-import { TopToolbar } from './components/TopToolbar';
+import { TopToolbar, ViewControls, DrawingControls } from './components/TopToolbar';
+import { ShortcutHelpDialog } from './components/ShortcutHelpDialog';
+import { scenesApi } from './services/scenesApi';
 import { Sidebar } from './components/Sidebar';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { AdvancedAddModal } from './components/AdvancedAddModal';
@@ -15,12 +17,16 @@ import StatusBar from './components/StatusBar';
 import { SceneCanvas } from './components/SceneCanvas';
 import { SceneManager } from './components/SceneManager';
 import { HomeMenu } from './components/HomeMenu';
-import { AddObjectPanel, getObjectLabel } from './components/AddObjectPanel';
+import { AddObjectPanel } from './components/AddObjectPanel';
+import { getObjectLabel } from './components/objectTypeMeta';
 import { TrussBuilderModal } from './components/TrussBuilderModal';
 import { TrussSheetModal } from './components/TrussSheetModal';
 import { TrussStudio } from './components/TrussStudio';
 import { EditorControls } from './components/EditorControls';
 import { EditTool, EditorSession } from './interaction';
+import { DOCKED_PANELS_QUERY, useMediaQuery } from './components/ui/useMediaQuery';
+import { SceneConflictDialog } from './components/SceneConflictDialog';
+import { EditorErrorBoundary } from './components/EditorErrorBoundary';
 
 export default function App() {
   const [sceneId, setSceneId] = useState<string | null>(null);
@@ -38,13 +44,29 @@ export default function App() {
   const [editTool, setEditTool] = useState<EditTool>('move');
   const [snapStep, setSnapStep] = useState(0.1);
   const editorSessionRef = useRef<EditorSession | null>(null);
-  const [panelOpen, setPanelOpen] = useState(() => window.matchMedia('(min-width: 768px)').matches);
-  const [addPanelOpen, setAddPanelOpen] = useState(() => window.matchMedia('(min-width: 768px)').matches);
+  const docked = useMediaQuery(DOCKED_PANELS_QUERY);
+  const [panelOpen, setPanelOpen] = useState(docked);
+  const [addPanelOpen, setAddPanelOpen] = useState(docked);
+  // Crossing the dock breakpoint (window resize, tablet rotation): docked layouts show both panels,
+  // sheets start closed so two bottom sheets never stack.
+  useEffect(() => {
+    setPanelOpen(docked);
+    setAddPanelOpen(docked);
+  }, [docked]);
   const [showTrussBuilder, setShowTrussBuilder] = useState(false);
   const [editingTrussId, setEditingTrussId] = useState<string | null>(null);
   const [showTrussSheet, setShowTrussSheet] = useState(false);
   const [isExiting, setIsExiting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const [toolbarMenuOpen, setToolbarMenuOpen] = useState(false);
+  const [toast, setToast] = useState<{ message: string; error: boolean } | null>(null);
+  const showNotice = useCallback((message: string, error = false) => setToast({ message, error }), []);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const objectRefs = useRef<Record<string, THREE.Group | null>>({});
 
@@ -54,6 +76,13 @@ export default function App() {
     handleBatchAddObjects, duplicateObjects, handleAddStair, handleRemoveStair,
     handleUpdateStair, undo, redo, canUndo, canRedo
   } = useObjects();
+  useEffect(() => {
+    const existing = new Set(objects.map(object => object.id));
+    setSelectedIds(previous => {
+      const next = new Set([...previous].filter(id => existing.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [objects]);
 
   const drawing = useDrawing();
 
@@ -74,11 +103,16 @@ export default function App() {
   const sceneIO = useSceneIO({
     sceneId, hall, objects, drawings: drawing.drawings,
     setHall, setObjects, resetObjects, setDrawings: drawing.setDrawings,
-    setSelectedIds, setIsDrawMode: drawing.setIsDrawMode, setMode
+    setSelectedIds, setIsDrawMode: drawing.setIsDrawMode, setMode, onNotice: showNotice
   });
+  useEffect(() => {
+    if (sceneIO.saveError && (sceneIO.saveStatus === 'error' || sceneIO.saveStatus === 'conflict')) {
+      showNotice(sceneIO.saveError, true);
+    }
+  }, [sceneIO.saveError, sceneIO.saveStatus, showNotice]);
 
   useKeyboard({
-    enabled: sceneId !== null && !showTrussBuilder && !showTrussSheet && !showBatchModal,
+    enabled: sceneId !== null && sceneIO.saveStatus !== 'conflict' && !showTrussBuilder && !showTrussSheet && !showBatchModal && !showShortcutHelp && !toolbarMenuOpen && !sceneIO.isLoading && !isExiting,
     mode, selectedIds, objects,
     deleteByIds, handleBatchUpdate,
     setSelectedIds, setIsDrawMode: drawing.setIsDrawMode,
@@ -87,16 +121,18 @@ export default function App() {
     tool: editTool, setTool: tool => { cancelEditing(); setEditTool(tool); }, snapStep
   });
 
-  const handleLoadScene = useCallback(async (id: string) => {
+  const handleLoadScene = useCallback(async (id: string, discardLocal = false) => {
     setLoadError(null);
-    const ok = await sceneIO.loadScene(id);
+    const ok = await sceneIO.loadScene(id, discardLocal);
     if (ok) {
       setView('scenes');
       setSceneId(id);
     } else {
       setLoadError('無法載入該場景，請稍後再試。');
+      showNotice('無法載入該場景，請稍後再試。', true);
     }
-  }, [sceneIO.loadScene]);
+    return ok;
+  }, [sceneIO.loadScene, showNotice]);
 
   const handleNewScene = useCallback(async (id: string) => {
     setLoadError(null);
@@ -111,21 +147,36 @@ export default function App() {
 
   const handleBackToList = useCallback(async () => {
     cancelEditing();
+    setSelectedIds(new Set());
+    setIsExiting(true);
     try {
-      setIsExiting(true);
-      await sceneIO.flushSave();
+      let saved = false;
+      try {
+        await sceneIO.flushSave();
+        saved = true;
+      } catch (error) {
+        showNotice(error instanceof Error ? error.message : '最新變更尚未儲存到伺服器。', true);
+        if (!window.confirm('最新變更尚未儲存到伺服器。仍要離開嗎？離開後這些變更會遺失。')) return;
+      }
+      if (saved && sceneId && sceneIO.shouldRefreshThumbnail()) {
+        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        const thumbnail = captureThumbnail();
+        if (thumbnail) {
+          try { await scenesApi.update(sceneId, { thumbnail }); }
+          catch (error) { console.warn('無法儲存場景縮圖：', error); }
+        }
+      }
+      setToast(null);
       setSceneId(null);
       setView('scenes');
-    } catch (err: unknown) {
-      console.error('Failed to flush save before exiting:', err);
     } finally {
       setIsExiting(false);
     }
-  }, [sceneIO.flushSave, cancelEditing]);
+  }, [sceneId, sceneIO.flushSave, sceneIO.shouldRefreshThumbnail, cancelEditing, showNotice]);
 
   const beginPlacement = (type: ObjectType) => {
     cancelEditing();
-    if (window.innerWidth < 768) setPanelOpen(false);
+    if (!docked) setPanelOpen(false);
     setSelectedIds(new Set());
     setEditTool('move');
     setPendingPlacement([createObjectConfig(type)]);
@@ -219,7 +270,7 @@ export default function App() {
       setSelectedIds(new Set());
       drawing.setIsDrawMode(false);
     } else {
-      setPanelOpen(window.innerWidth >= 768);
+      setPanelOpen(docked);
     }
   };
 
@@ -232,7 +283,7 @@ export default function App() {
     return (
       <>
         {sceneIO.isLoading && (
-          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center backdrop-blur-xs">
+          <div role="status" className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center backdrop-blur-sm">
             <div className="bg-white px-6 py-4 rounded-xl shadow-xl flex items-center gap-3 text-slate-800 font-medium">
               <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
               <span>載入中…</span>
@@ -240,9 +291,9 @@ export default function App() {
           </div>
         )}
         {loadError && (
-          <div role="alert" className="fixed top-4 right-4 z-50 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3">
+          <div role="alert" className="fixed top-4 right-4 left-4 sm:left-auto z-50 bg-white ring-1 ring-red-200 text-red-700 px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 text-sm">
             <span>{loadError}</span>
-            <button onClick={() => setLoadError(null)} className="text-red-700 hover:text-red-900 font-bold cursor-pointer">✕</button>
+            <button onClick={() => setLoadError(null)} aria-label="關閉" className="ui-icon-btn text-red-600">✕</button>
           </div>
         )}
         <SceneManager
@@ -256,19 +307,26 @@ export default function App() {
 
   if (!sceneId) {
     return (
-      <HomeMenu
-        onOpenScenes={() => setView('scenes')}
-        onOpenTrussStudio={() => setView('trussStudio')}
-      />
+      <>
+        <HomeMenu
+          onOpenScenes={() => setView('scenes')}
+          onOpenTrussStudio={() => setView('trussStudio')}
+          onOpenScene={handleLoadScene}
+        />
+        {sceneIO.isLoading && <div role="status" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="flex items-center gap-3 rounded-xl bg-white px-6 py-4 text-sm text-slate-900 shadow-xl"><span className="h-5 w-5 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />載入中…</div>
+        </div>}
+        {loadError && <div role="alert" className="fixed top-4 right-4 left-4 sm:left-auto z-50 flex items-center gap-3 rounded-xl bg-white px-4 py-3 text-sm text-red-700 shadow-lg ring-1 ring-red-200"><span>{loadError}</span><button className="ui-icon-btn text-red-600" aria-label="關閉" onClick={() => setLoadError(null)}>✕</button></div>}
+      </>
     );
   }
 
   // --- Main Editor ---
   return (
-    <div className="flex flex-col h-screen w-screen bg-slate-100 text-slate-900 font-sans overflow-hidden">
+    <div className="flex flex-col h-dvh w-screen bg-slate-100 overflow-hidden">
       {/* Loading / Exiting overlay */}
       {(sceneIO.isLoading || isExiting) && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center backdrop-blur-xs">
+        <div role="status" className="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center backdrop-blur-sm">
           <div className="bg-white px-6 py-4 rounded-xl shadow-xl flex items-center gap-3 text-slate-800 font-medium">
             <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
             <span>{isExiting ? '儲存中…' : '載入中…'}</span>
@@ -301,10 +359,21 @@ export default function App() {
       {showTrussSheet && (
         <TrussSheetModal objects={objects} onClose={() => setShowTrussSheet(false)} />
       )}
+      {showShortcutHelp && <ShortcutHelpDialog onClose={() => setShowShortcutHelp(false)} />}
 
       {/* Top Toolbar */}
       <TopToolbar
         mode={mode}
+        sceneName={sceneIO.sceneName}
+        tool={editTool}
+        setTool={tool => { cancelEditing(); setEditTool(tool); }}
+        snapStep={snapStep}
+        setSnapStep={setSnapStep}
+        saveStatus={sceneIO.saveStatus}
+        saveError={sceneIO.saveError}
+        onRetrySave={() => sceneIO.flushSave().catch(() => {})}
+        onShortcutHelp={() => setShowShortcutHelp(true)}
+        onMenuOpenChange={setToolbarMenuOpen}
         setMode={handleSetMode}
         isDrawMode={drawing.isDrawMode}
         setIsDrawMode={active => { cancelEditing(); drawing.setIsDrawMode(active); }}
@@ -327,52 +396,20 @@ export default function App() {
         setShowLabels={setShowLabels}
         takeScreenshot={sceneIO.takeScreenshot}
         panelOpen={panelOpen}
-        setPanelOpen={open => { setPanelOpen(open); if (open && window.innerWidth < 768) setAddPanelOpen(false); }}
+        setPanelOpen={open => { setPanelOpen(open); if (open && !docked) setAddPanelOpen(false); }}
         addPanelOpen={addPanelOpen}
-        setAddPanelOpen={open => { setAddPanelOpen(open); if (open && window.innerWidth < 768) setPanelOpen(false); }}
+        setAddPanelOpen={open => { setAddPanelOpen(open); if (open && !docked) setPanelOpen(false); }}
         onBackToList={handleBackToList}
         hasTrussStructures={objects.some(obj => obj.type === ObjectType.TRUSS_STRUCTURE)}
         onOpenTrussSheets={() => setShowTrussSheet(true)}
       />
-      {/* Save Status Indicator */}
-      {sceneId && (
-        <div
-          aria-live="polite"
-          className={`h-7 flex-shrink-0 px-4 py-1 text-xs flex items-center justify-between border-b z-20 ${
-            sceneIO.saveStatus === 'error'
-              ? 'bg-red-50 text-red-700 border-red-200'
-              : sceneIO.saveStatus === 'saving'
-              ? 'bg-blue-50 text-blue-700 border-blue-200'
-              : sceneIO.saveStatus === 'dirty'
-              ? 'bg-amber-50 text-amber-700 border-amber-200'
-              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <span className="font-medium">
-              {sceneIO.saveStatus === 'idle' && '已載入'}
-              {sceneIO.saveStatus === 'dirty' && '尚未儲存'}
-              {sceneIO.saveStatus === 'saving' && '儲存中…'}
-              {sceneIO.saveStatus === 'saved' && '已儲存'}
-              {sceneIO.saveStatus === 'error' && '儲存失敗'}
-            </span>
-            {sceneIO.saveStatus === 'error' && sceneIO.saveError && (
-              <span className="text-red-500 text-[11px]">({sceneIO.saveError})</span>
-            )}
-          </div>
-          {sceneIO.saveStatus === 'error' && (
-            <button
-              type="button"
-              onClick={() => sceneIO.flushSave().catch(() => {})}
-              className="text-xs px-2 py-0.5 bg-red-100 hover:bg-red-200 text-red-800 rounded font-semibold transition-colors cursor-pointer"
-            >
-              重試儲存
-            </button>
-          )}
-        </div>
-      )}
+      {toast && <div role={toast.error ? 'alert' : 'status'} className={`fixed top-16 right-4 left-4 sm:left-auto z-[70] flex max-w-lg items-center gap-3 rounded-xl bg-white px-4 py-3 text-sm shadow-lg ring-1 ${toast.error ? 'text-red-700 ring-red-200' : 'text-slate-900 ring-slate-200'}`}>
+        <span>{toast.message}</span><button className="ui-icon-btn shrink-0" aria-label="關閉" onClick={() => setToast(null)}>✕</button>
+      </div>}
+      {sceneIO.saveStatus === 'conflict' && <SceneConflictDialog onExport={sceneIO.exportScene} onReload={sceneIO.resolveConflictReload} onOverwrite={sceneIO.resolveConflictOverwrite} onError={showNotice} />}
 
       {/* Main Area */}
+      <EditorErrorBoundary key={sceneId} onReload={() => handleLoadScene(sceneId, true)} onBack={() => { void handleBackToList(); }}>
       <div className="flex flex-1 min-h-0">
         {/* Left: Add Object Panel (EDIT mode only) */}
         {mode === 'EDIT' && (
@@ -417,7 +454,6 @@ export default function App() {
             objectRefs={objectRefs}
           />
           {mode === 'EDIT' && !drawing.isDrawMode && (
-            <div className="absolute top-3 left-3 right-3 z-20 pointer-events-none">
               <EditorControls
                 tool={editTool} setTool={tool => { cancelEditing(); setEditTool(tool); }}
                 snapStep={snapStep} setSnapStep={setSnapStep}
@@ -427,8 +463,13 @@ export default function App() {
                 onCancel={cancelEditing} busy={isDragging}
                 onDuplicate={duplicateSelected} onDelete={deleteSelected}
               />
-            </div>
           )}
+          {mode === 'VIEW' && !drawing.isDrawMode && <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 w-max lg:hidden bg-slate-900/90 backdrop-blur-sm ring-1 ring-white/10 rounded-xl shadow-lg p-2">
+            <ViewControls viewIndex={viewIndex} setViewIndex={index => { setViewIndex(index); setViewRequest(request => request + 1); }} viewEnvironment={viewEnvironment} setViewEnvironment={setViewEnvironment} showLabels={showLabels} setShowLabels={setShowLabels} takeScreenshot={sceneIO.takeScreenshot} />
+          </div>}
+          {drawing.isDrawMode && <div className={`absolute bottom-3 left-1/2 -translate-x-1/2 z-20 w-max xl:hidden rounded-xl shadow-lg ring-1 p-2 ${mode === 'VIEW' ? 'bg-slate-900/90 backdrop-blur-sm ring-white/10' : 'bg-white ring-slate-200'}`}>
+            <DrawingControls drawingColor={drawing.drawingColor} setDrawingColor={drawing.setDrawingColor} clearDrawings={drawing.clearDrawings} dark={mode === 'VIEW'} />
+          </div>}
         </div>
 
         {/* Right Sidebar */}
@@ -463,7 +504,9 @@ export default function App() {
         isDrawMode={drawing.isDrawMode}
         selectedIds={selectedIds}
         objects={objects}
+        placementLabel={pendingPlacement ? (pendingPlacement[0].label || getObjectLabel(pendingPlacement[0].type)) : undefined}
       />
+      </EditorErrorBoundary>
     </div>
   );
 }

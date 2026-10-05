@@ -1,10 +1,12 @@
-import React from 'react';
-import {
-  Ruler, PaintBucket, X,
-} from 'lucide-react';
-import { BanquetObject, ObjectType, HallConfig } from '../types';
-import { THEMES, Theme } from '../constants';
+import React, { useEffect, useState } from 'react';
+import { ChevronDown, MousePointer2 } from 'lucide-react';
+import type { BanquetObject, HallConfig } from '../types';
+import { THEMES } from '../constants';
+import type { Theme } from '../constants';
 import { ObjectListPanel } from './ObjectListPanel';
+import { NumberField } from './ui/NumberField';
+import { BottomSheet } from './ui/BottomSheet';
+import { DOCKED_PANELS_QUERY, useMediaQuery } from './ui/useMediaQuery';
 
 interface SidebarProps {
   mode: 'EDIT' | 'VIEW';
@@ -19,102 +21,65 @@ interface SidebarProps {
   children: React.ReactNode;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({
-  mode, hall, setHall,
-  objects, selectedIds, setSelectedIds, deleteObject,
-  panelOpen, setPanelOpen,
-  children
-}) => {
-  const applyTheme = (theme: Theme) => {
-    setHall(prev => ({
-      ...prev,
-      wallColor: theme.wall,
-      floorColor: theme.floor,
-      wallRoughness: theme.wallRoughness,
-      wallMetalness: theme.wallMetalness,
-      floorRoughness: theme.floorRoughness,
-      floorMetalness: theme.floorMetalness,
-      baseboard: theme.baseboard,
-    }));
-  };
-
+export const Sidebar: React.FC<SidebarProps> = ({ mode, hall, setHall, objects, selectedIds, setSelectedIds, deleteObject, panelOpen, setPanelOpen, children }) => {
+  const docked = useMediaQuery(DOCKED_PANELS_QUERY);
+  const hasSelection = selectedIds.size > 0;
+  const [hallExpanded, setHallExpanded] = useState(!hasSelection);
+  useEffect(() => setHallExpanded(!hasSelection), [hasSelection]);
+  const applyTheme = (theme: Theme) => setHall(prev => ({
+    ...prev, wallColor: theme.wall, floorColor: theme.floor,
+    wallRoughness: theme.wallRoughness, wallMetalness: theme.wallMetalness,
+    floorRoughness: theme.floorRoughness, floorMetalness: theme.floorMetalness,
+    baseboard: theme.baseboard,
+  }));
   if (mode !== 'EDIT' || !panelOpen) return null;
-
+  const content = (
+    <div className="space-y-6 p-4">
+      {hasSelection ? children : (
+        <div className="space-y-3 py-4 text-center">
+          <MousePointer2 className="mx-auto h-6 w-6 text-slate-400" />
+          <p className="text-sm text-slate-700">點選場景中的物件即可編輯</p>
+          <p className="text-xs leading-relaxed text-slate-500">Shift＋點選可多選；從左側「新增物件」放置新物件</p>
+        </div>
+      )}
+      <section className="space-y-4">
+        <button type="button" onClick={() => setHallExpanded(value => !value)} aria-expanded={hallExpanded} className="flex min-h-10 w-full items-center justify-between text-sm font-semibold text-slate-900">
+          場地設定<ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${hallExpanded ? '' : '-rotate-90'}`} />
+        </button>
+        {hallExpanded && <div className="space-y-6">
+          <section className="space-y-3">
+            <h3 className="ui-section-title">尺寸</h3>
+            <div className="grid grid-cols-3 gap-3">
+              <NumberField label="寬" value={hall.width} onChange={width => setHall(prev => ({ ...prev, width }))} unit="m" min={1} max={200} step={0.5} precision={1} />
+              <NumberField label="長" value={hall.length} onChange={length => setHall(prev => ({ ...prev, length }))} unit="m" min={1} max={200} step={0.5} precision={1} />
+              <NumberField label="高" value={hall.height} onChange={height => setHall(prev => ({ ...prev, height }))} unit="m" min={1} max={200} step={0.5} precision={1} />
+            </div>
+          </section>
+          <section className="space-y-3">
+            <h3 className="ui-section-title">主題</h3>
+            <div className="grid grid-cols-4 gap-3">
+              {THEMES.map(theme => {
+                const selected = hall.wallColor === theme.wall && hall.floorColor === theme.floor;
+                return <button type="button" key={theme.id} aria-label={theme.name} aria-pressed={selected} onClick={() => applyTheme(theme)} className="flex min-h-10 flex-col items-center gap-2 rounded-lg py-1">
+                  <span className={`relative h-8 w-8 overflow-hidden rounded-full border border-slate-200 ${selected ? 'ring-2 ring-blue-600 ring-offset-2' : ''}`}>
+                    <span className="absolute inset-x-0 top-0 h-1/2" style={{ backgroundColor: theme.wall }} />
+                    <span className="absolute inset-x-0 bottom-0 h-1/2" style={{ backgroundColor: theme.floor }} />
+                  </span>
+                  <span className="text-xs text-slate-600">{theme.name}</span>
+                </button>;
+              })}
+            </div>
+          </section>
+        </div>}
+      </section>
+    </div>
+  );
+  const footer = <ObjectListPanel objects={objects} selectedIds={selectedIds} setSelectedIds={setSelectedIds} deleteObject={deleteObject} />;
+  if (!docked) return <BottomSheet title="屬性" onClose={() => setPanelOpen(false)}>{content}{footer}</BottomSheet>;
   return (
-    <>
-      {/* Mobile backdrop */}
-      <div
-        className="fixed inset-0 bg-black/30 z-30 md:hidden"
-        onClick={() => setPanelOpen(false)}
-      />
-
-      <div className={`
-        flex flex-col bg-white border-l border-slate-300 flex-shrink-0 z-40
-        fixed inset-y-0 right-0 w-72 md:relative md:w-72
-        shadow-xl md:shadow-none
-      `}>
-        {/* Mobile close button */}
-        <div className="flex items-center justify-between p-3 border-b border-slate-100 md:hidden">
-          <span className="text-xs font-bold text-slate-500 uppercase">Settings</span>
-          <button onClick={() => setPanelOpen(false)} className="p-1 text-slate-400 hover:text-slate-600">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-5">
-          {/* Dimensions */}
-          <div className="space-y-3">
-            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-              <Ruler className="w-3 h-3" /> Dimensions
-            </h3>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="space-y-1">
-                <label className="text-[9px] font-semibold text-slate-500 uppercase">W (m)</label>
-                <input type="number" value={hall.width} onChange={(e) => setHall({ ...hall, width: parseFloat(e.target.value) || 0 })} className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[9px] font-semibold text-slate-500 uppercase">L (m)</label>
-                <input type="number" value={hall.length} onChange={(e) => setHall({ ...hall, length: parseFloat(e.target.value) || 0 })} className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[9px] font-semibold text-slate-500 uppercase">H (m)</label>
-                <input type="number" value={hall.height} onChange={(e) => setHall({ ...hall, height: parseFloat(e.target.value) || 0 })} className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs" />
-              </div>
-            </div>
-          </div>
-
-          {/* Themes */}
-          <div className="space-y-2 border-t border-slate-100 pt-4">
-            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-              <PaintBucket className="w-3 h-3" /> Theme
-            </h3>
-            <div className="grid grid-cols-4 gap-1.5">
-              {THEMES.map(t => (
-                <button key={t.id} onClick={() => applyTheme(t)} className="group flex flex-col items-center gap-1" title={t.name}>
-                  <div className="w-full aspect-square rounded-full border-2 border-slate-100 shadow-sm overflow-hidden relative group-hover:border-blue-400 transition-colors">
-                    <div className="absolute inset-0 h-1/2" style={{ backgroundColor: t.wall }} />
-                    <div className="absolute inset-0 top-1/2 h-1/2" style={{ backgroundColor: t.floor }} />
-                  </div>
-                  <span className="text-[9px] font-medium text-slate-500 group-hover:text-blue-600 transition-colors leading-tight">{t.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Properties Panel */}
-          <div className="border-t border-slate-100 pt-4">
-            {children}
-          </div>
-        </div>
-
-        {/* Object List */}
-        <ObjectListPanel
-          objects={objects}
-          selectedIds={selectedIds}
-          setSelectedIds={setSelectedIds}
-          deleteObject={deleteObject}
-        />
-      </div>
-    </>
+    <aside className="flex w-72 shrink-0 flex-col border-l border-slate-200 bg-white xl:w-80">
+      <div className="min-h-0 flex-1 overflow-y-auto">{content}</div>
+      {footer}
+    </aside>
   );
 };

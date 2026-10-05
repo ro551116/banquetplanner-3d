@@ -1,0 +1,162 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design system (see docs/UI-DESIGN-SYSTEM.md)
+ * Neutrals: slate only. Accent: blue-600. Semantic: emerald (success), amber (pending), red (error/destructive).
+ * Type: text-xs 12 labels/meta · text-sm 14 body/controls · text-base 16 panel titles · text-2xl 24 page titles.
+ * Radius: rounded-lg controls · rounded-xl cards, panels, dialogs.
+ */
+
+@layer base {
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  body {
+    @apply bg-slate-100 font-sans text-slate-900 antialiased;
+  }
+
+  input[type='number'] {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .ui-label {
+    @apply block text-xs font-medium text-slate-500;
+  }
+
+  .ui-input {
+    @apply h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-900 tabular-nums transition-colors
+      placeholder:text-slate-400 hover:border-slate-300
+      focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20
+      disabled:bg-slate-50 disabled:text-slate-400;
+  }
+
+  .ui-btn {
+    @apply inline-flex h-9 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-sm font-medium transition-colors
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40
+      disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .ui-btn-primary {
+    @apply ui-btn bg-blue-600 text-white shadow-sm hover:bg-blue-700;
+  }
+
+  .ui-btn-secondary {
+    @apply ui-btn border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 hover:text-slate-900;
+  }
+
+  .ui-btn-ghost {
+    @apply ui-btn text-slate-600 hover:bg-slate-100 hover:text-slate-900;
+  }
+
+  .ui-btn-danger {
+    @apply ui-btn text-red-600 hover:bg-red-50 hover:text-red-700;
+  }
+
+  .ui-icon-btn {
+    @apply inline-flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-lg text-slate-600 transition-colors
+      hover:bg-slate-100 hover:text-slate-900
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40
+      disabled:pointer-events-none disabled:opacity-40
+      aria-pressed:bg-slate-200 aria-pressed:text-slate-900
+      coarse:h-10 coarse:w-10;
+  }
+
+  .ui-segmented {
+    @apply inline-flex shrink-0 items-center gap-0.5 rounded-lg bg-slate-100 p-0.5;
+  }
+
+  .ui-segment {
+    @apply inline-flex h-7 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-sm font-medium text-slate-600 transition-colors
+      hover:text-slate-900
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40
+      aria-pressed:bg-white aria-pressed:text-blue-700 aria-pressed:shadow-sm
+      aria-selected:bg-white aria-selected:text-blue-700 aria-selected:shadow-sm
+      coarse:h-9;
+  }
+
+  .ui-section-title {
+    @apply text-sm font-semibold text-slate-900;
+  }
+
+  .ui-card {
+    @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+  }
+
+  .ui-kbd {
+    @apply inline-flex h-4 min-w-4 items-center justify-center rounded border border-slate-200 bg-slate-50 px-1 font-mono text-2xs text-slate-500 coarse:hidden;
+  }
+
+  .ui-sheet-handle {
+    @apply mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-300;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Pages (home, scene list, Truss studio) — owned by the pages slice */
+@layer components {
+  .page-shell {
+    @apply mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12;
+  }
+  .page-title {
+    @apply text-2xl font-semibold text-slate-900;
+  }
+  .page-subtitle {
+    @apply text-sm text-slate-500;
+  }
+  .entity-card {
+    @apply relative cursor-pointer overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition duration-200 can-hover:hover:-translate-y-0.5 can-hover:hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2;
+  }
+  .entity-card-thumb {
+    @apply flex aspect-video items-center justify-center overflow-hidden bg-slate-50;
+  }
+  .entity-card-actions {
+    @apply flex items-center gap-1 opacity-100 transition-opacity;
+  }
+  .new-entity-card {
+    @apply rounded-xl border border-dashed border-slate-300 bg-white transition duration-200 can-hover:hover:-translate-y-0.5 can-hover:hover:border-blue-600 can-hover:hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 disabled:pointer-events-none disabled:opacity-40;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .entity-card-actions { opacity: 0; }
+  .entity-card:hover .entity-card-actions,
+  .entity-card:focus-within .entity-card-actions { opacity: 1; }
+}
+@media print {
+  body:has(.truss-studio-print-area) * { visibility: hidden; }
+  /* Same body:has() prefix so this outranks the hide rule above (`:has(.class)` adds class specificity). */
+  body:has(.truss-studio-print-area) .truss-studio-print-area,
+  body:has(.truss-studio-print-area) .truss-studio-print-area * { visibility: visible; }
+  .truss-studio-print-area { position: absolute; inset: 0; background: white; overflow: visible !important; padding: 0 !important; }
+  .truss-no-print { display: none !important; }
+  .truss-print-card { break-after: page; page-break-after: always; box-shadow: none !important; border: 0 !important; }
+}

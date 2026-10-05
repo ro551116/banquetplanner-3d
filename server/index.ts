@@ -588,10 +588,18 @@ app.put('/api/scenes/:id', (req, res) => {
   try {
     const scene = readScene(req.params.id);
     if (!scene) return sendNotFound(res);
+    const changesContent = req.body.name !== undefined || req.body.data !== undefined;
+    if (changesContent && req.body.baseUpdatedAt !== undefined) {
+      if (typeof req.body.baseUpdatedAt !== 'string') return sendBadRequest(res, 'baseUpdatedAt must be a string');
+      if (req.body.baseUpdatedAt !== scene.updated_at) {
+        return res.status(409).json({ error: 'conflict', updated_at: scene.updated_at });
+      }
+    }
     if (req.body.name !== undefined) scene.name = req.body.name;
     if (req.body.data !== undefined) scene.data = req.body.data;
     if (req.body.thumbnail !== undefined) scene.thumbnail = req.body.thumbnail;
-    scene.updated_at = new Date().toISOString();
+    // A thumbnail is presentation only; it must not reorder the list or claim the scene was edited.
+    if (changesContent) scene.updated_at = new Date(Math.max(Date.now(), Date.parse(scene.updated_at) + 1)).toISOString();
     writeScene(scene);
     res.json({ id: scene.id, name: scene.name, updated_at: scene.updated_at });
   } catch (err) {

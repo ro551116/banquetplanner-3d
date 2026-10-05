@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { Canvas, type ThreeEvent } from '@react-three/fiber';
 import {
   OrbitControls, Grid, PerspectiveCamera,
@@ -56,12 +56,17 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
 }) => {
   const night = mode === 'VIEW' && viewEnvironment === 'night';
   const renderSettings = useMemo(() => ({ night, showLabels: mode === 'EDIT' || showLabels }), [night, mode, showLabels]);
+  const floorDown = useRef<{ pointerId: number; x: number; y: number } | null>(null);
 
   const handleFloorPointerDown = (e: ThreeEvent<PointerEvent>) => {
+    floorDown.current = null;
     if (mode !== 'EDIT' || e.button !== 0 || pendingPlacement) return;
     if (isDrawMode) {
       e.stopPropagation();
       startPath(e.point.clone());
+    }
+    else {
+      floorDown.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
     }
   };
 
@@ -72,14 +77,22 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
   };
 
   const handleFloorPointerUp = (e: ThreeEvent<PointerEvent>) => {
-    if (!isDrawMode || mode !== 'EDIT' || currentPath.length === 0) return;
-    e.stopPropagation();
-    finishPath();
+    const down = floorDown.current;
+    floorDown.current = null;
+    if (mode !== 'EDIT' || e.button !== 0 || pendingPlacement) return;
+    if (isDrawMode) {
+      if (currentPath.length === 0) return;
+      e.stopPropagation();
+      finishPath();
+    } else if (down?.pointerId === e.pointerId && !e.shiftKey && !isDragging
+      && Math.hypot(e.clientX - down.x, e.clientY - down.y) <= 4) {
+      setSelectedIds(new Set());
+    }
   };
 
 
   const handlePointerMissed = (e: MouseEvent) => {
-    if (e.button === 0 && mode === 'EDIT' && !pendingPlacement && !isDrawMode && !isDragging) {
+    if (e.button === 0 && !e.shiftKey && mode === 'EDIT' && !pendingPlacement && !isDrawMode && !isDragging) {
       setSelectedIds(new Set());
     }
   };
@@ -87,6 +100,7 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
 
   return (
     <Canvas
+      frameloop="demand"
       shadows="soft"
       camera={{ position: [10, 10, 10], fov: 45 }}
       gl={{
@@ -119,9 +133,9 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
         />
       )}
 
-      {/* 3D axis indicator (Gizmo) — EDIT mode only */}
+      {/* 3D axis indicator (Gizmo) — EDIT mode only; top-left keeps it clear of the bottom floating bars. */}
       {mode === 'EDIT' && (
-        <GizmoHelper alignment="bottom-left" margin={[80, 80]}>
+        <GizmoHelper alignment="top-left" margin={[56, 56]}>
           <GizmoViewport axisColors={['#bc6262', '#6c86b5', '#6f987e']} labelColor="black" />
         </GizmoHelper>
       )}

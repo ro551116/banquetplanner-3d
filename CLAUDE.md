@@ -5,20 +5,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev       # Start dev server on port 3000
-npm run build     # Production build to /dist
-npm run preview   # Preview production build
+npm run dev        # Start dev server on port 3000
+npm run dev:server # Scene API + built dist on port 3001 (PORT, DATA_DIR)
+npm run build      # Production build to /dist
+npm run typecheck  # tsc --noEmit
+npm test           # node:test via tsx (trussConfig, sceneData)
 ```
 
-No test runner, linter, or formatter is configured.
+No linter or formatter is configured.
 
 ## Tech Stack
 
 - React 18 + TypeScript 5.8 + Vite 6
 - Three.js with `@react-three/fiber`, `@react-three/drei`, `@react-three/postprocessing`
-- Tailwind CSS via CDN (no build step)
-- Google Gemini API (`@google/genai`) for AI-powered layout generation
-- Fully client-side — no backend
+- Tailwind CSS 3.4 build step (`tailwind.config.js`, `postcss.config.js`, `index.css`); UI rules in `docs/UI-DESIGN-SYSTEM.md`
+- Express server (`server/index.ts`) persists scenes and the Truss studio under `DATA_DIR`
 
 ## Architecture
 
@@ -26,9 +27,9 @@ No test runner, linter, or formatter is configured.
 
 All state lives in `App.tsx` and is passed down as props. No Redux or Context API. Four custom hooks encapsulate domain logic:
 
-- **`useObjects`** — Object CRUD, batch operations, duplicate, stair management. Wraps `useHistory` for undo/redo (50-state limit).
-- **`useHistory`** — Generic undo/redo stack using refs for past/future arrays.
-- **`useSceneIO`** — JSON import/export, localStorage auto-save (1s debounce), auto-load on mount.
+- **`useObjects`** — Object CRUD, batch operations, duplicate, stair management. Wraps `useHistory` for undo/redo (50-state limit). Updates that change nothing return the previous array (no empty undo steps).
+- **`useHistory`** — Undo/redo reducer. `set(value, { mergeKey })` coalesces consecutive same-key edits within 1 s (sliders, colour pickers) into one undo step.
+- **`useSceneIO`** — Load (through `normalizeSceneData`), serial versioned autosave (2 s debounce, `baseUpdatedAt` → 409 conflict dialog), automatic retry with backoff, unload guard while anything is unsaved, JSON import/export, thumbnails.
 - **`useDrawing`** — Drawing mode toggle, path creation/clearing.
 - **`useKeyboard`** — Keyboard shortcuts (Ctrl+Z/Y, Delete, arrows, D for duplicate).
 
@@ -43,8 +44,8 @@ All state lives in `App.tsx` and is passed down as props. No Redux or Context AP
 
 ### Dual Mode System
 
-- **EDIT mode** — Sidebar visible, object manipulation enabled, transform gizmos, drawing tools
-- **VIEW mode** — Sidebar hidden, ViewToolbar shown, preset camera views, day/night toggle, enhanced post-processing
+- **EDIT mode** — Light toolbar (scene name, 編輯｜預覽, tools ≥1024px, 更多 menu, save indicator, 新增/屬性 toggles); add palette left and properties right, docked ≥1024px, bottom sheets below; contextual floating bar for placement/selection.
+- **VIEW mode** — Dark presentation toolbar (view presets, 夜間, 標籤, 截圖; floating bottom bar below 1024px), no side panels or status bar.
 
 ### Data Model
 
@@ -61,24 +62,29 @@ Core types in `types.ts`:
 | `components/SceneCanvas.tsx` | 3D viewport, lighting, post-processing |
 | `components/BanquetObjects.tsx` | All 3D model geometry (~700 lines) |
 | `components/ObjectWrapper.tsx` | Object selection, dragging, transform handles |
-| `components/Sidebar.tsx` | Left panel — object palette, hall config, theme presets |
-| `components/PropertiesPanel.tsx` | Selected object property editors |
-| `components/AdvancedAddModal.tsx` | Batch add with AI generation via Gemini |
-| `services/geminiService.ts` | Gemini API integration for layout suggestions |
+| `components/Sidebar.tsx` | Right properties panel/sheet: selection first, collapsible 場地設定, object list |
+| `components/PropertiesPanel.tsx` | Selected object property editors (shared `NumberField`/`TextField`) |
+| `components/AddObjectPanel.tsx` | Add palette: group tabs + tiles from `components/objectTypeMeta.tsx` |
+| `components/TopToolbar.tsx` / `EditorControls.tsx` / `StatusBar.tsx` | Editor chrome, contextual floating bar, status row |
+| `components/AdvancedAddModal.tsx` | 批次新增 (quick counts / table grid) |
 | `constants.ts` | Theme presets, initial hall config, default values |
 
 ### Persistence
 
-- Auto-saves to `localStorage` with 1s debounce
-- JSON export/import for sharing scenes
-- No backend storage
+- Autosave to the server API with optimistic concurrency: data PUTs send `baseUpdatedAt`; a 409 pauses autosave and opens `SceneConflictDialog` (export / reload latest / overwrite). Agents and curl may omit it to overwrite unconditionally.
+- Failed saves retry automatically (2 s, 5 s, 15 s, then every 30 s); the browser leave prompt is armed whenever revisions are unsaved, including error and conflict states.
+- `services/sceneData.ts` normalizes loaded and imported scenes (finite transforms, known types, unique ids, clamped hall). A scene without an `objects` section opens with the default stage and speakers; imports replace only the sections the file contains.
+- `EditorErrorBoundary` keeps a render error inside the editor body with reload/back actions.
+- Leaving the editor stores a 480×270 list thumbnail when the scene has none or was edited (thumbnail-only PUTs do not touch `updated_at`)
+- The canvas renders on demand (`frameloop="demand"`). Code that mutates three objects outside React must call `invalidate()`.
 
 ### Environment Variables
 
-- `GEMINI_API_KEY` in `.env.local` — required for AI layout generation feature
+- Server only: `PORT`, `DATA_DIR`. The browser bundle reads no environment variables (the unused client-side Gemini path and its build-time key injection were removed on 2026-10-05).
 
 ## Build Parity and QA Pitfalls
 
-- Release and parity builds: run `env -u GEMINI_API_KEY npm run build` unless you are deliberately configuring the browser AI feature. `vite.config.ts` calls `loadEnv(mode, '.', '')` and substitutes `GEMINI_API_KEY` into `process.env.API_KEY` and `process.env.GEMINI_API_KEY`, so a key inherited from the shell enlarges the bundle and can embed the credential. Never print keys or upload a bundle that may contain one. Compare lock versions and build inputs before calling a hash mismatch deployment drift (2026-09-27, commit ac9bdd9: the sanitized local bundle and production were byte-identical, 1,812,682 B).
+- Release and parity builds: `npm run build` (no credential injection remains). Compare lock versions and build inputs before calling a hash mismatch deployment drift.
 - React QA through DOM internals: a node's `__reactFiber` can point to an old alternate. Walk to HostRoot, take `root.stateNode.current`, find the fiber whose `stateNode` is the DOM node, then inspect its ancestors and hooks. Use this for diagnosis only, cross-check the real DOM, screenshots and interactions, and never mutate app state through fibers.
 - `@react-three/drei` 9.96 `Edges` replaces `ref.current.geometry` without disposing the previous `EdgesGeometry`. `Highlight` in `components/models/shared.tsx` owns and disposes its outline geometry. When changing editable procedural models, test repeated resizing of a selected object and watch `gl.info.memory.geometries` (after the fix it stays at 537 across 13 width changes).
+- Headless QA: hidden headless tabs throttle `requestAnimationFrame`, so camera lerps and canvas frames stall between tool calls. Pump frames in-page (`requestAnimationFrame` loop for ~2.5s) before screenshots. `(pointer: coarse)` only matches while `Emulation.setTouchEmulationEnabled` is active on the same live CDP session; viewport `hasTouch` alone does not change it.

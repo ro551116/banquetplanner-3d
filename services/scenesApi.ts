@@ -11,11 +11,7 @@ export interface SceneMeta {
 }
 
 export interface SceneFull extends SceneMeta {
-  data: {
-    hall?: any;
-    objects?: any[];
-    drawings?: any[];
-  };
+  data: unknown;
 }
 
 export const scenesApi = {
@@ -23,15 +19,16 @@ export const scenesApi = {
 
   get: (id: string) => apiFetch<SceneFull>(`${API_BASE}/${id}`),
 
-  create: (name: string, data?: any) =>
+  create: (name: string, data?: unknown) =>
     apiFetch<SceneMeta>(API_BASE, {
       method: 'POST',
       body: JSON.stringify({ name, data }),
     }),
 
-  update: (id: string, payload: { name?: string; data?: any; thumbnail?: string }) =>
+  update: (id: string, payload: { name?: string; data?: unknown; thumbnail?: string; baseUpdatedAt?: string }) =>
     apiFetch<SceneMeta>(`${API_BASE}/${id}`, {
       method: 'PUT',
+      timeoutMs: payload.data === undefined ? undefined : 20_000,
       body: JSON.stringify(payload),
     }),
 

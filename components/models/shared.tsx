@@ -1,5 +1,6 @@
 import React, { useMemo, useContext, useLayoutEffect, useRef } from 'react';
 import { Html } from '@react-three/drei';
+import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { TABLE_CLOTH_MATERIALS } from '../../constants';
 import { RenderSettingsContext } from '../RenderSettings';
@@ -8,6 +9,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { createTubeGeometry } from './details';
 
 export const Highlight = ({ color = "#3b82f6" }: { color?: string }) => {
+  const invalidate = useThree(state => state.invalidate);
   const ref = useRef<THREE.LineSegments>(null);
   const resource = useRef<{ source: THREE.BufferGeometry; edges: THREE.EdgesGeometry } | null>(null);
   useLayoutEffect(() => {
@@ -18,6 +20,7 @@ export const Highlight = ({ color = "#3b82f6" }: { color?: string }) => {
     line.geometry.dispose();
     line.geometry = edges;
     resource.current = { source, edges };
+    invalidate();
   });
   useLayoutEffect(() => () => {
     resource.current?.edges.dispose();
@@ -34,9 +37,11 @@ export const Label = ({ text }: { text: string }) => {
   const { showLabels } = useContext(RenderSettingsContext);
   if (!showLabels) return null;
 
+  // Fixed screen size: distance-scaled labels shrank to ~6px in overview framing.
+  // zIndex stays below the toolbar/menus (z-20) and sheets so labels never cover UI.
   return (
-    <Html position={[0, 2, 0]} center distanceFactor={15} zIndexRange={[40, 0]} style={{ pointerEvents: 'none' }}>
-      <div className="bg-slate-900/80 text-white text-[10px] px-2 py-0.5 rounded shadow-sm whitespace-nowrap backdrop-blur-sm border border-white/10">
+    <Html position={[0, 2, 0]} center zIndexRange={[15, 0]} style={{ pointerEvents: 'none' }}>
+      <div className="whitespace-nowrap rounded-md bg-slate-900/85 px-2 py-0.5 text-xs font-medium text-white shadow-sm ring-1 ring-white/10">
         {text}
       </div>
     </Html>
@@ -183,6 +188,7 @@ export interface ChairPlacement {
 }
 
 export function BanquetChairs({ placements }: { placements: ChairPlacement[] }) {
+  const invalidate = useThree(state => state.invalidate);
   const frame = useRef<THREE.InstancedMesh>(null);
   const upholstery = useRef<THREE.InstancedMesh>(null);
   const feet = useRef<THREE.InstancedMesh>(null);
@@ -200,7 +206,8 @@ export function BanquetChairs({ placements }: { placements: ChairPlacement[] }) 
       mesh.instanceMatrix.needsUpdate = true;
       mesh.computeBoundingSphere();
     });
-  }, [placements]);
+    invalidate();
+  }, [placements, invalidate]);
   return (
     <group>
       <instancedMesh ref={frame} args={[chairParts.frame, chairMetal, placements.length]} castShadow receiveShadow />

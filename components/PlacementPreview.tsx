@@ -18,7 +18,7 @@ const PREVIEW_SETTINGS = { showLabels: false, night: false };
 
 export function PlacementPreview({ pending, objects, snapStep, onPlace, onCancel }: PlacementPreviewProps) {
   const root = useRef<THREE.Group>(null);
-  const { camera, gl, controls } = useThree();
+  const { camera, gl, controls, invalidate } = useThree();
   const callbacks = useRef({ onPlace, onCancel });
   callbacks.current = { onPlace, onCancel };
   const surfaces = useMemo(() => {
@@ -55,11 +55,12 @@ export function PlacementPreview({ pending, objects, snapStep, onPlace, onCancel
         materials.push({ mesh: object, originals });
       }
     });
+    invalidate();
     return () => {
       materials.forEach(({ mesh, originals }) => { mesh.material = originals; });
       materialCopies.forEach(material => material.dispose());
     };
-  }, [pending]);
+  }, [pending, invalidate]);
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -106,6 +107,7 @@ export function PlacementPreview({ pending, objects, snapStep, onPlace, onCancel
       if (root.current) {
         root.current.visible = true;
         root.current.position.copy(position);
+        invalidate();
       }
       return true;
     };
@@ -119,7 +121,10 @@ export function PlacementPreview({ pending, objects, snapStep, onPlace, onCancel
     const move = (event: PointerEvent) => {
       if (gesture && event.pointerId !== gesture.id) return;
       if (gesture) { event.stopImmediatePropagation(); event.preventDefault(); }
-      if (!locate(event) && root.current) root.current.visible = false;
+      if (!locate(event) && root.current?.visible) {
+        root.current.visible = false;
+        invalidate();
+      }
     };
     const down = (event: PointerEvent) => {
       if (event.button !== 0 || gesture) return;
@@ -140,7 +145,12 @@ export function PlacementPreview({ pending, objects, snapStep, onPlace, onCancel
     };
     const cancel = () => { release(); callbacks.current.onCancel(); };
     const lost = () => { if (gesture) cancel(); };
-    const leave = () => { if (!gesture && root.current) root.current.visible = false; };
+    const leave = () => {
+      if (!gesture && root.current?.visible) {
+        root.current.visible = false;
+        invalidate();
+      }
+    };
     canvas.addEventListener('pointerdown', down, true);
     canvas.addEventListener('pointermove', move, true);
     canvas.addEventListener('pointerup', up, true);
@@ -159,7 +169,7 @@ export function PlacementPreview({ pending, objects, snapStep, onPlace, onCancel
       release();
       canvas.style.cursor = previousCursor;
     };
-  }, [gl, camera, controls, surfaces, snapStep]);
+  }, [gl, camera, controls, surfaces, snapStep, invalidate]);
 
   return (
     <group ref={root} visible={false} userData={{ placementPreview: true }}>

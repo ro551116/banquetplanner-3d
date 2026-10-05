@@ -31,8 +31,9 @@ export function useDrawing() {
   }, [drawingColor]);
 
   const clearDrawings = useCallback(() => {
+    if (drawings.length === 0 || !window.confirm('清除全部標註？此動作無法復原。')) return;
     setDrawings([]);
-  }, []);
+  }, [drawings.length]);
 
   const cancelPath = useCallback(() => setCurrentPath([]), []);
 

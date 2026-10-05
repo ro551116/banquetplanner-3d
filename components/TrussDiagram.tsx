@@ -55,6 +55,11 @@ const drawMemberSegments = (
     const h = axis === 'x' ? barPx : segmentPx;
     const labelX = axis === 'x' ? x + w / 2 : startX;
     const labelY = axis === 'x' ? startY + 5 : y + h / 2 + 4;
+    const rgb = TRUSS_SEGMENT_COLORS[segment].slice(1).match(/.{2}/g)!.map(channel => {
+      const value = parseInt(channel, 16) / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    const labelFill = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2] < 0.4 ? '#fff' : '#111';
 
     elements.push(
       <g key={`${keyPrefix}-segment-${index}`}>
@@ -73,7 +78,7 @@ const drawMemberSegments = (
           textAnchor="middle"
           fontSize={18}
           fontWeight={700}
-          fill="#111"
+          fill={labelFill}
           transform={axis === 'y' ? `rotate(-90 ${labelX} ${labelY - 4})` : undefined}
         >
           {segment}
@@ -103,9 +108,9 @@ const CornerCoupler = ({ x, y, couplerPx }: { x: number; y: number; couplerPx: n
 
 const Legend = () => (
   <g transform="translate(38 112)">
-    <text x={0} y={0} fontSize={22} fontWeight={800} fill="#111">圖例</text>
+    <text x={0} y={0} fontSize={22} fontWeight={400} fill="#111">圖例</text>
     <g transform="translate(0 34)">
-      <rect x={0} y={-12} width={LEGEND_COUPLER} height={LEGEND_COUPLER} fill="#111" />
+      <rect x={0} y={-10} width={20} height={20} fill="#111" />
       <text x={34} y={3} fontSize={16} fill="#111">對接頭</text>
     </g>
     {TRUSS_SEGMENT_LENGTHS.map((length, index) => (
@@ -113,17 +118,17 @@ const Legend = () => (
         <rect
           x={0}
           y={-16}
-          width={length === 10 ? 52 : 86}
-          height={length <= 20 ? 16 : 22}
+          width={length === 10 ? 44 : 72}
+          height={length <= 20 ? 14 : 18}
           fill={TRUSS_SEGMENT_COLORS[length]}
           stroke="#111"
           strokeWidth={1}
         />
-        <text x={104} y={1} fontSize={16} fontWeight={700} fill="#111">{length}cm 段</text>
+        <text x={104} y={1} fontSize={16} fontWeight={400} fill="#111">{length}cm 段</text>
       </g>
     ))}
     <g transform={`translate(0 ${76 + TRUSS_SEGMENT_LENGTHS.length * 42})`}>
-      <rect x={0} y={-13} width={86} height={12} fill="#111" />
+      <rect x={0} y={-13} width={72} height={10} fill="#111" />
       <text x={104} y={0} fontSize={16} fill="#111">鐵板</text>
     </g>
   </g>
@@ -292,6 +297,7 @@ export const TrussDiagram: React.FC<TrussDiagramProps> = ({
 
   return (
     <svg
+      fontFamily="'PingFang TC','Noto Sans TC','Microsoft JhengHei',system-ui,sans-serif"
       id={svgId}
       className={className}
       viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}

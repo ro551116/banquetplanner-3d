@@ -88,7 +88,7 @@ Response:
 
 ### 更新場景
 
-整份 `data` 會被替換；`name`、`data`、`thumbnail` 可單獨傳。
+整份 `data` 會被替換；`name`、`data`、`thumbnail` 可單獨傳。只傳 `thumbnail`（場景列表縮圖，480×270 JPEG data URL）時不會更新 `updated_at`；前端在離開編輯器時，只有場景尚無縮圖或本次有編輯才會上傳。
 
 ```bash
 curl -X PUT "$BASE/api/scenes/scene-id" \
@@ -101,6 +101,14 @@ Response:
 ```json
 { "id": "scene-id", "name": "晚宴 A - 修正版", "updated_at": "2026-06-12T10:05:00.000Z" }
 ```
+
+可傳入 `baseUpdatedAt`（上次 GET 或成功 PUT 回傳的 `updated_at` 字串）進行樂觀版本檢查。若版本已改變，回傳 HTTP **409**，不寫入任何變更：
+
+```json
+{ "error": "conflict", "updated_at": "2026-06-12T10:06:00.000Z" }
+```
+
+例如傳入 `{ "data": { "hall": {}, "objects": [], "drawings": [] }, "baseUpdatedAt": "2026-06-12T10:05:00.000Z" }`。省略 `baseUpdatedAt` 會無條件覆寫，保留 Agent／curl 的相容行為；僅更新 `thumbnail` 不檢查版本、也不更新 `updated_at`。編輯器的資料 PUT 逾時為 20 秒，遇到衝突會暫停自動儲存，讓使用者匯出、載入最新版本或明確覆寫。
 
 ### 刪除場景
 

@@ -36,7 +36,7 @@ interface TrussBuilderModalProps {
 }
 
 const KIND_OPTIONS: Array<{ kind: TrussStructureKind; title: string; description: string }> = [
-  { kind: 'TOWER', title: '立柱', description: '單支直立 truss' },
+  { kind: 'TOWER', title: '立柱', description: '單支直立 Truss' },
   { kind: 'GOALPOST', title: 'ㄇ型', description: '雙柱加頂梁' },
   { kind: 'BACKDROP', title: '背景框型', description: 'ㄇ型加深度側撐' },
   { kind: 'BOX', title: '口字框', description: '雙柱加上下梁' },
@@ -149,13 +149,13 @@ const SegmentChip = ({
 }) => (
   <div className="group flex items-center overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
     <span
-      className="h-7 w-9 border-r border-slate-200"
+      className="h-9 coarse:h-10 w-9 border-r border-slate-200"
       style={{ backgroundColor: TRUSS_SEGMENT_COLORS[length] }}
     />
     <select
       value={length}
       onChange={(e) => onChange(Number(e.target.value) as TrussSegmentLength)}
-      className="h-7 bg-white px-1 text-[11px] font-bold text-slate-700 outline-none"
+      className="h-9 coarse:h-10 bg-white px-2 text-sm font-medium text-slate-700 outline-none"
     >
       {TRUSS_SEGMENT_LENGTHS.map(option => (
         <option key={option} value={option}>{option}</option>
@@ -164,8 +164,8 @@ const SegmentChip = ({
     <button
       type="button"
       onClick={onRemove}
-      className="h-7 w-6 flex items-center justify-center text-slate-300 hover:bg-red-50 hover:text-red-500"
-      title="移除此段"
+      className="ui-icon-btn min-h-9 min-w-9 hover:bg-red-50 hover:text-red-600"
+      aria-label="移除此段"
     >
       <X className="w-3 h-3" />
     </button>
@@ -201,8 +201,8 @@ const MemberEditor = ({
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-bold text-slate-700">{label}</span>
-        <span className="text-[11px] font-semibold text-slate-500">實際 {total}cm</span>
+        <span className="text-xs font-semibold text-slate-700">{label}</span>
+        <span className="text-xs text-slate-500">實際 {total}cm</span>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {segments.map((segment, index) => (
@@ -220,7 +220,7 @@ const MemberEditor = ({
             key={length}
             type="button"
             onClick={() => addSegment(length)}
-            className="h-6 px-2 rounded border border-slate-200 bg-white text-[10px] font-bold text-slate-600 hover:border-blue-300 hover:text-blue-600 flex items-center gap-1"
+            className="ui-btn-secondary"
           >
             <Plus className="w-2.5 h-2.5" />
             {length}
@@ -261,7 +261,8 @@ const NumberField = ({
       return;
     }
     const num = Number(trimmed);
-    onChange(num);
+    // Leaving a field without changing it must not re-run auto-fit and overwrite hand-tuned segments.
+    if (num !== value) onChange(num);
   };
 
   const handleBlur = () => {
@@ -278,7 +279,7 @@ const NumberField = ({
 
   return (
     <div className="space-y-1">
-      <label htmlFor={inputId} className="text-[10px] font-bold text-slate-500 uppercase">{label}</label>
+      <label htmlFor={inputId} className="ui-label">{label}</label>
       <input
         id={inputId}
         type="number"
@@ -292,7 +293,7 @@ const NumberField = ({
         onChange={(e) => setDraft(e.target.value)}
         onBlur={handleBlur}
         onKeyDown={handleKeyDown}
-        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+        className="ui-input"
       />
     </div>
   );
@@ -405,18 +406,6 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
     return () => previousFocus?.focus();
   }, []);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!isSubmitting) onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [onClose, isSubmitting]);
-
   const effectiveQuantity = lockQuantity ? 1 : clampInt(quantity, 1, 1);
   const clampedBayCount = clampInt(bayCount, 2, 2, 6);
   const currentLegLength = getMemberLength(legs);
@@ -448,6 +437,31 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
 
   const actualDims = getTrussDimensions(workingConfig);
   const isEditing = Boolean(initialConfig);
+
+  // Snapshot of the config as opened: closing with edits asks first, so a stray Esc can't discard a long draft.
+  const openedConfigRef = useRef<string | null>(null);
+  const currentConfigJson = JSON.stringify(workingConfig);
+  if (openedConfigRef.current === null) openedConfigRef.current = currentConfigJson;
+  const isDirty = currentConfigJson !== openedConfigRef.current;
+  const requestClose = () => {
+    if (isSubmitting) return;
+    if (isDirty && !window.confirm('放棄尚未儲存的 Truss 變更？')) return;
+    onClose();
+  };
+  const requestCloseRef = useRef(requestClose);
+  requestCloseRef.current = requestClose;
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Esc that dismisses an IME candidate list (Zhuyin/Cangjie) must not close the builder.
+      if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229) return;
+      e.preventDefault();
+      e.stopPropagation();
+      requestCloseRef.current();
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, []);
 
   // Structural validation rules:
   // 1. Left and right legs must have equal total length for horizontal frame closing
@@ -552,6 +566,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
   };
 
   const handleKindChange = (nextKind: TrussStructureKind) => {
+    if (nextKind === kind) return;
     if (nextKind === 'CUSTOM') {
       if (customMembers.length === 0) {
         handleConvertToCustom();
@@ -672,17 +687,17 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
         <div className="flex items-start gap-2">
           <div className="grid grid-cols-2 gap-2 flex-1">
             <div className="space-y-1 col-span-2">
-              <label className="text-[10px] font-bold text-slate-500 uppercase">Label</label>
+              <label className="ui-label">桿件名稱</label>
               <input
                 value={member.label || ''}
                 placeholder={getCustomMemberLabel(member, index)}
                 onChange={(e) => updateCustomMember(member.id, item => ({ ...item, label: e.target.value }))}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                className="ui-input"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-500 uppercase">方向</label>
+              <label className="ui-label">方向</label>
               <select
                 value={member.orientation}
                 onChange={(e) => {
@@ -695,7 +710,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                     origin: { ...item.origin, zCm: item.origin.zCm ?? 0 },
                   }));
                 }}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
+                className="ui-input"
               >
                 {ORIENTATION_OPTIONS.map(option => (
                   <option key={option.value} value={option.value}>{option.label}</option>
@@ -705,14 +720,14 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
 
             {member.orientation === 'HORIZONTAL' && (
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">水平方向</label>
+                <label className="ui-label">水平方向</label>
                 <select
                   value={member.direction === -1 ? -1 : 1}
                   onChange={(e) => updateCustomMember(member.id, item => ({
                     ...item,
                     direction: Number(e.target.value) === -1 ? -1 : 1,
                   }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
+                  className="ui-input"
                 >
                   <option value={1}>向右</option>
                   <option value={-1}>向左</option>
@@ -722,7 +737,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
 
             {member.orientation === 'VERTICAL' && (
               <label className="space-y-1">
-                <span className="block text-[10px] font-bold text-slate-500 uppercase">鐵板</span>
+                <span className="ui-label">鐵板</span>
                 <span className="flex h-[38px] items-center justify-between rounded-lg border border-slate-200 px-3">
                   <span className="text-xs font-semibold text-slate-600">底部鐵板</span>
                   <input
@@ -780,8 +795,8 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
             <button
               type="button"
               onClick={() => duplicateCustomMember(member)}
-              className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-blue-600 flex items-center justify-center"
-              title="複製桿件"
+              className="ui-icon-btn"
+              aria-label="複製桿件"
             >
               <Copy className="w-3.5 h-3.5" />
             </button>
@@ -789,8 +804,8 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
               type="button"
               onClick={() => deleteCustomMember(member.id)}
               disabled={customMembers.length <= 1}
-              className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-500 flex items-center justify-center"
-              title="刪除桿件"
+              className="ui-icon-btn hover:bg-red-50 hover:text-red-600"
+              aria-label="刪除桿件"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
@@ -836,20 +851,20 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
           first?.focus();
         }
       }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 backdrop-blur-sm p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="truss-builder-title"
     >
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl border border-slate-200 flex flex-col max-h-[92vh] overflow-hidden">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl border border-slate-200 flex flex-col max-h-[92vh] overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-slate-100">
-          <h3 id="truss-builder-title" className="text-sm font-bold text-slate-800">Truss 建造器</h3>
+          <h3 id="truss-builder-title" className="text-base font-semibold text-slate-900">Truss 建造器</h3>
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             disabled={isSubmitting}
-            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600"
-            title="關閉"
+            className="ui-icon-btn"
+            aria-label="關閉"
           >
             <X className="w-4 h-4" />
           </button>
@@ -867,11 +882,11 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                   key={option.kind}
                   type="button"
                   onClick={() => handleKindChange(option.kind)}
-                  className={`rounded-lg border p-2 text-left transition-colors ${kind === option.kind ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}
+                  className={`rounded-lg border p-2 text-left transition-colors ${kind === option.kind ? 'border-slate-200 bg-white text-blue-700 shadow-sm ring-1 ring-slate-200' : 'border-slate-200 bg-slate-50 hover:bg-slate-100'}`}
                 >
                   <KindSketch kind={option.kind} />
-                  <div className="text-xs font-bold text-slate-800">{option.title}</div>
-                  <div className="text-[10px] text-slate-500">{option.description}</div>
+                  <div className="text-sm font-semibold text-slate-900">{option.title}</div>
+                  <div className="text-xs text-slate-500">{option.description}</div>
                 </button>
               ))}
             </div>
@@ -881,13 +896,13 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                 <button
                   type="button"
                   onClick={handleConvertToCustom}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-bold text-blue-700 hover:border-blue-300 hover:bg-blue-50"
+                  className="ui-btn-secondary w-full text-left"
                 >
                   {customMembers.length > 0
                     ? '⤷ 依目前預設重新產生自訂桿件（將取代自訂草稿）'
                     : '⤷ 轉為自訂繼續編輯'}
                 </button>
-                <div className="text-[11px] text-slate-500 px-1 leading-relaxed">
+                <div className="text-xs text-slate-500 px-1 leading-relaxed">
                   預設結構外徑包含 25cm 轉角連接件；轉為自訂後將以實際桿件端點座標範圍呈現（不計轉角連接件間距）。
                   {customMembers.length > 0 && ' 點擊上方按鈕將以目前預設桿件覆蓋現有的自訂草稿。'}
                 </div>
@@ -896,12 +911,12 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1 col-span-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">用途名稱</label>
+                <label className="ui-label">用途名稱</label>
                 <input
                   ref={titleInputRef}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  className="ui-input"
                 />
               </div>
 
@@ -1003,7 +1018,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
 
               {kind === 'MULTI_BAY' && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase">跨數</label>
+                  <label className="ui-label">跨數</label>
                   <select
                     value={clampedBayCount}
                     onChange={(e) => {
@@ -1013,7 +1028,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                       const targetMainBeam = Math.max(10, targetWidth - allowances.widthCm);
                       setBeam({ segments: fitSegmentsForBays(targetMainBeam, nextBayCount) });
                     }}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
+                    className="ui-input"
                   >
                     {[2, 3, 4, 5, 6].map(count => (
                       <option key={count} value={count}>{count} 跨</option>
@@ -1024,10 +1039,10 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
 
               {lockQuantity ? (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase">座數</label>
+                  <label className="ui-label">座數</label>
                   <div className="flex h-[38px] items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500">
                     <span>1 座</span>
-                    <span className="text-[11px] text-slate-400">（場景編輯固定單座）</span>
+                    <span className="text-xs text-slate-500">（場景編輯固定單座）</span>
                   </div>
                 </div>
               ) : (
@@ -1045,7 +1060,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                   <button
                     type="button"
                     onClick={() => autoFit()}
-                    className="w-full h-[38px] rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-xs font-bold hover:bg-blue-100"
+                    className="ui-btn-secondary w-full"
                   >
                     重新自動配段
                   </button>
@@ -1055,7 +1070,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
 
             {supportsRightLeg(kind) && (
               <label className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
-                <span className="text-xs font-bold text-slate-700">右柱獨立配段</span>
+                <span className="text-xs font-medium text-slate-700">右柱獨立配段</span>
                 <input
                   type="checkbox"
                   checked={useRightLeg}
@@ -1071,10 +1086,10 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
             )}
 
             <div className="rounded-lg bg-slate-900 text-white px-3 py-2">
-              <div className="text-[10px] text-slate-300">
+              <div className="text-xs text-slate-100">
                 {kind === 'CUSTOM' ? '桿件座標範圍' : '實際外徑'}
               </div>
-              <div className="text-sm font-bold">
+              <div className="text-sm font-semibold tabular-nums">
                 {kind === 'TOWER'
                   ? `H${actualDims.heightCm}`
                   : `W${actualDims.widthCm} × H${actualDims.heightCm}${actualDims.depthCm !== undefined ? ` × D${actualDims.depthCm || 0}` : ''}`} cm
@@ -1101,7 +1116,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                     <select
                       value={effectiveCustomAddMode}
                       onChange={(e) => setCustomAddMode(e.target.value)}
-                      className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs"
+                      className="ui-input min-w-0 flex-1"
                     >
                       <option value="FREE">自由位置</option>
                       {customMembers.map((member, index) => {
@@ -1118,7 +1133,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                     <button
                       type="button"
                       onClick={addCustomMember}
-                      className="h-[38px] px-3 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 flex items-center gap-1.5"
+                      className="ui-btn-secondary"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       新增桿件
@@ -1151,10 +1166,10 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
           </div>
 
           <div className="min-h-0 overflow-y-auto bg-slate-100 p-4">
-            <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-100">
-                <div className="text-xs font-bold text-slate-700">2D 結構圖預覽</div>
-                <div className="text-[11px] text-slate-500 truncate">{formatTrussTitle(workingConfig)}</div>
+            <div className="ui-card overflow-hidden">
+              <div className="px-4 py-3">
+                <div className="text-sm font-semibold text-slate-900">2D 結構圖預覽</div>
+                <div className="text-xs text-slate-500 truncate">{formatTrussTitle(workingConfig)}</div>
               </div>
               <div className="aspect-[16/9]">
                 <TrussDiagram config={workingConfig} />
@@ -1169,8 +1184,8 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
             <button
               type="button"
               onClick={() => setSubmitError(null)}
-              className="text-red-400 hover:text-red-600 p-0.5 rounded"
-              title="關閉提示"
+              className="ui-icon-btn text-red-600"
+              aria-label="關閉提示"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -1180,9 +1195,9 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
         <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center gap-2">
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             disabled={isSubmitting}
-            className="flex-1 py-2 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            className="ui-btn-secondary flex-1"
           >
             取消
           </button>
@@ -1190,7 +1205,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
             type="button"
             onClick={handleSubmit}
             disabled={!canSubmit || isSubmitting}
-            className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:bg-slate-300 disabled:hover:bg-slate-300 flex items-center justify-center gap-2"
+            className="ui-btn-primary flex-1"
           >
             <Check className="w-3.5 h-3.5" />
             {isSubmitting ? '儲存中...' : (submitLabel ?? (isEditing ? '儲存結構' : '加入場景'))}

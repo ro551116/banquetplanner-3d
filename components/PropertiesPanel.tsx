@@ -1,323 +1,156 @@
 import React from 'react';
-import {
-  MousePointer2, Trash2, Type, Move3d, PaintBucket,
-  Footprints, X, GripHorizontal
-} from 'lucide-react';
-import { BanquetObject, ObjectType, StairSide, TableCloth } from '../types';
+import { MousePointer2, Trash2, X } from 'lucide-react';
+import { ObjectType } from '../types';
+import type { BanquetObject, StairConfig, StairSide, TableCloth } from '../types';
 import { TABLE_PRESETS, TABLE_CLOTH_MATERIALS } from '../constants';
 import { formatTrussTitle, getTrussDimensions } from '../trussConfig';
+import { OBJECT_TYPE_META, getObjectDisplayName } from './objectTypeMeta';
+import { NumberField, TextField } from './ui/NumberField';
 
 interface PropertiesPanelProps {
   selectedIds: Set<string>;
   objects: BanquetObject[];
-  updateObject: (id: string, updates: Partial<BanquetObject>) => void;
+  updateObject: (id: string, updates: Partial<BanquetObject>, mergeKey?: string) => void;
   deleteSelected: () => void;
-  handleBulkPropertyUpdate: (ids: Set<string>, updates: Partial<BanquetObject>) => void;
+  handleBulkPropertyUpdate: (ids: Set<string>, updates: Partial<BanquetObject>, mergeKey?: string) => void;
   handleAddStair: (stageId: string) => void;
   handleRemoveStair: (stageId: string, stairId: string) => void;
-  handleUpdateStair: (stageId: string, stairId: string, updates: Partial<import('../types').StairConfig>) => void;
+  handleUpdateStair: (stageId: string, stairId: string, updates: Partial<StairConfig>) => void;
   onEditTrussStructure: (object: BanquetObject) => void;
 }
 
-export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
-  selectedIds, objects, updateObject, deleteSelected,
-  handleBulkPropertyUpdate, handleAddStair, handleRemoveStair, handleUpdateStair,
-  onEditTrussStructure
-}) => {
-  const selectedCount = selectedIds.size;
-  const singleSelectedId = selectedCount === 1 ? Array.from(selectedIds)[0] : null;
-  const selectedObj = singleSelectedId ? objects.find(o => o.id === singleSelectedId) : null;
-  const isSelectedLight = selectedObj?.type.includes('LIGHT');
+// Maps to (-180, 180] so dragging the slider to its right end shows 180° instead of jumping to -180°.
+const wrapDegrees = (radians: number) => 180 - ((((180 - radians * 180 / Math.PI) % 360) + 360) % 360);
 
-  return (
-    <div className="p-5 border-t border-slate-200 bg-slate-50 max-h-[40vh] overflow-y-auto shadow-[inset_0_4px_6px_-1px_rgba(0,0,0,0.05)]">
-      {selectedCount > 0 ? (
-        <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-bold text-blue-600 uppercase flex items-center gap-1">
-              <MousePointer2 className="w-3 h-3" />
-              {selectedCount === 1 ? 'Selected Object' : `${selectedCount} Objects Selected`}
-            </h3>
-            <button onClick={deleteSelected} className="text-slate-400 hover:text-red-500 transition-colors" title="Delete (Del)">
-              <Trash2 className="w-4 h-4" />
-            </button>
+export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedIds, objects, updateObject, deleteSelected, handleBulkPropertyUpdate, handleAddStair, handleRemoveStair, handleUpdateStair, onEditTrussStructure }) => {
+  const count = selectedIds.size;
+  const object = count === 1 ? objects.find(item => selectedIds.has(item.id)) : undefined;
+  if (count === 0) return null;
+  const meta = object ? OBJECT_TYPE_META[object.type] : undefined;
+  const Icon = meta?.Icon ?? MousePointer2;
+  const isLight = object?.type.includes('LIGHT');
+  const pan = object ? wrapDegrees(object.rotation.y) : 0;
+  const tilt = object ? Math.max(-90, Math.min(90, wrapDegrees(object.rotation.x ?? 0))) : 0;
+  return <div key={object?.id ?? 'multiple'} className="space-y-6 animate-fade-in">
+    <header className="flex items-start justify-between gap-3">
+      <div className="flex min-w-0 items-start gap-2">
+        <Icon className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
+        <div className="min-w-0">
+          <h2 className="break-words text-base font-semibold">{object ? getObjectDisplayName(object) : `已選 ${count} 個物件`}</h2>
+          {object?.label?.trim() && <p className="mt-1 text-xs text-slate-500">{meta?.label}</p>}
+        </div>
+      </div>
+      <button type="button" onClick={deleteSelected} aria-label="刪除" className="ui-btn-danger h-8 shrink-0 px-2"><Trash2 className="h-4 w-4" /></button>
+    </header>
+    {count > 1 && <section className="space-y-3">
+      <h3 className="ui-section-title">批量修改顏色</h3>
+      <input type="color" aria-label="批量修改顏色" className="h-9 w-9 cursor-pointer rounded-lg ring-1 ring-slate-200 coarse:h-10 coarse:w-10" onChange={event => handleBulkPropertyUpdate(selectedIds, { color: event.target.value }, 'bulk:color')} />
+    </section>}
+    {object && <>
+      <TextField key={`name-${object.id}`} label="名稱" value={object.label ?? ''} placeholder={meta?.label} onChange={label => updateObject(object.id, { label })} />
+      <section className="space-y-3">
+        <h3 className="ui-section-title">位置</h3>
+        <div className="grid grid-cols-3 gap-3">
+          <NumberField label="X" value={object.position.x} unit="m" step={0.1} onChange={x => updateObject(object.id, { position: { ...object.position, x } })} />
+          <NumberField label="高度 Y" value={object.position.y} unit="m" step={0.1} onChange={y => updateObject(object.id, { position: { ...object.position, y } })} />
+          <NumberField label="Z" value={object.position.z} unit="m" step={0.1} onChange={z => updateObject(object.id, { position: { ...object.position, z } })} />
+        </div>
+      </section>
+      <section className="space-y-4">
+        <h3 className="ui-section-title">方向</h3>
+        <div className="space-y-3">
+          <NumberField label="水平角度" value={pan} min={-180} max={180} step={1} precision={0} unit="°" onChange={value => updateObject(object.id, { rotation: { ...object.rotation, y: value * Math.PI / 180 } })} />
+          <input aria-label="水平角度" type="range" min={-180} max={180} step={1} value={pan} className="h-6 w-full cursor-pointer accent-blue-600 coarse:h-10" onChange={event => updateObject(object.id, { rotation: { ...object.rotation, y: Number(event.target.value) * Math.PI / 180 } }, `${object.id}:rotation.y`)} />
+        </div>
+        {isLight && <>
+          <div className="space-y-3">
+            <NumberField label="仰角" value={tilt} min={-90} max={90} step={1} precision={0} unit="°" onChange={value => updateObject(object.id, { rotation: { ...object.rotation, x: value * Math.PI / 180 } })} />
+            <input aria-label="仰角" type="range" min={-90} max={90} step={1} value={tilt} className="h-6 w-full cursor-pointer accent-blue-600 coarse:h-10" onChange={event => updateObject(object.id, { rotation: { ...object.rotation, x: Number(event.target.value) * Math.PI / 180 } }, `${object.id}:rotation.x`)} />
           </div>
-
-          {/* Bulk Color Edit */}
-          {selectedCount > 1 && (
-            <div className="space-y-2 p-3 bg-blue-50/50 rounded-lg border border-blue-100">
-              <label className="text-[10px] font-semibold text-slate-500 uppercase flex items-center gap-2">
-                <PaintBucket className="w-3 h-3" /> 批量修改顏色 (Bulk Color)
-              </label>
-              <div className="flex items-center gap-2">
-                <input type="color" className="w-full h-8 cursor-pointer rounded border border-slate-200" onChange={(e) => handleBulkPropertyUpdate(selectedIds, { color: e.target.value })} />
-              </div>
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs text-slate-500"><span>亮度</span><span className="tabular-nums">{Math.round((object.intensity ?? 1) * 100)}%</span></div>
+            <input aria-label="亮度" type="range" min={0} max={300} step={1} value={(object.intensity ?? 1) * 100} className="h-6 w-full cursor-pointer accent-blue-600 coarse:h-10" onChange={event => updateObject(object.id, { intensity: Number(event.target.value) / 100 }, `${object.id}:intensity`)} />
+          </div>
+        </>}
+      </section>
+      <section className="space-y-3">
+        <h3 className="ui-section-title">顏色</h3>
+        <div className="flex items-center gap-3">
+          <input aria-label="物件顏色" type="color" value={object.color} onChange={event => updateObject(object.id, { color: event.target.value }, `${object.id}:color`)} className="h-9 w-9 cursor-pointer rounded-lg ring-1 ring-slate-200 coarse:h-10 coarse:w-10" />
+          <span className="text-xs tabular-nums text-slate-500">{object.color}</span>
+        </div>
+      </section>
+      {(object.type === ObjectType.ROUND_TABLE || object.type === ObjectType.RECT_TABLE) && <section className="space-y-4">
+        <h3 className="ui-section-title">桌布</h3>
+        <div className="grid grid-cols-4 gap-2">
+          {TABLE_PRESETS.map(preset => <button type="button" key={preset.id} aria-pressed={object.color === preset.color && object.tableCloth === preset.cloth} aria-label={preset.name} onClick={() => updateObject(object.id, { color: preset.color, tableCloth: preset.cloth })} className={`flex flex-col items-center gap-2 rounded-lg p-1.5 ${object.color === preset.color && object.tableCloth === preset.cloth ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}>
+            <span className="h-8 w-8 rounded-lg border border-slate-200 coarse:h-10 coarse:w-10" style={{ backgroundColor: preset.color }} /><span className="text-xs">{preset.name}</span>
+          </button>)}
+        </div>
+        <div className="space-y-1.5">
+          <p className="ui-label">材質</p>
+          <div className="ui-segmented flex w-full">
+            {(Object.entries(TABLE_CLOTH_MATERIALS) as [TableCloth, typeof TABLE_CLOTH_MATERIALS[TableCloth]][]).map(([key, material]) => <button type="button" key={key} className="ui-segment flex-1" aria-pressed={(object.tableCloth ?? 'linen') === key} onClick={() => updateObject(object.id, { tableCloth: key })}>{material.label}</button>)}
+          </div>
+        </div>
+      </section>}
+      {object.type === ObjectType.ROUND_TABLE && <section className="space-y-3">
+        <h3 className="ui-section-title">圓桌尺寸</h3>
+        <select aria-label="圓桌尺寸" value={object.customSize ?? 6} className="ui-input" onChange={event => updateObject(object.id, { customSize: Number(event.target.value) })}>
+          <option value={4}>4 尺（5 人）</option><option value={5}>5 尺（8 人）</option><option value={6}>6 尺（10 人）</option><option value={8}>8 尺（12 人）</option>
+        </select>
+      </section>}
+      {object.type === ObjectType.RED_CARPET && <section className="space-y-3">
+        <h3 className="ui-section-title">紅地毯</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <NumberField label="寬" value={object.customWidth ?? 1.5} min={0.5} step={0.1} unit="m" onChange={customWidth => updateObject(object.id, { customWidth })} />
+          <NumberField label="長" value={object.customDepth ?? 10} min={1} step={0.5} unit="m" onChange={customDepth => updateObject(object.id, { customDepth })} />
+        </div>
+      </section>}
+      {object.type === ObjectType.STAGE && <section className="space-y-4">
+        <h3 className="ui-section-title">舞台</h3>
+        <div className="grid grid-cols-3 gap-3">
+          <NumberField label="寬" value={object.customWidth ?? 6} step={0.5} unit="m" onChange={customWidth => updateObject(object.id, { customWidth })} />
+          <NumberField label="深" value={object.customDepth ?? 4} step={0.5} unit="m" onChange={customDepth => updateObject(object.id, { customDepth })} />
+          <NumberField label="高" value={object.customHeight ?? 0.5} step={0.1} unit="m" onChange={customHeight => updateObject(object.id, { customHeight })} />
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between"><h4 className="ui-section-title">樓梯</h4><button type="button" className="ui-btn-secondary h-8" onClick={() => handleAddStair(object.id)}>新增樓梯</button></div>
+          {(object.stairs ?? []).map((stair, index) => <div key={stair.id} className="ui-card space-y-3 p-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs tabular-nums text-slate-500">{index + 1}</span>
+              <select aria-label={`樓梯 ${index + 1} 方位`} className="ui-input flex-1" value={stair.side} onChange={event => handleUpdateStair(object.id, stair.id, { side: event.target.value as StairSide })}><option value="front">前側</option><option value="back">後側</option><option value="left">左側</option><option value="right">右側</option></select>
+              <button type="button" className="ui-icon-btn text-red-600" aria-label="移除樓梯" onClick={() => handleRemoveStair(object.id, stair.id)}><X className="h-4 w-4" /></button>
             </div>
-          )}
-
-          {/* Single Object Editor */}
-          {selectedObj && (
-            <>
-              <div className="space-y-2">
-                <label className="text-[10px] font-semibold text-slate-500 uppercase">Label</label>
-                <div className="flex items-center gap-2">
-                  <Type className="w-4 h-4 text-slate-400" />
-                  <input type="text" value={selectedObj.label || ''} onChange={(e) => updateObject(selectedObj.id, { label: e.target.value })} className="flex-1 bg-white border border-slate-200 rounded px-2 py-1 text-xs" />
-                </div>
-              </div>
-
-              {/* Position */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-semibold text-slate-500 uppercase flex items-center gap-1"><Move3d className="w-3 h-3" /> Position (X, Y, Z)</label>
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="space-y-0.5">
-                    <span className="text-[9px] text-slate-400">X</span>
-                    <input type="number" step="0.1" value={Math.round(selectedObj.position.x * 100) / 100} onChange={(e) => updateObject(selectedObj.id, { position: { ...selectedObj.position, x: parseFloat(e.target.value) } })} className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs" />
-                  </div>
-                  <div className="space-y-0.5">
-                    <span className="text-[9px] text-slate-400">Y (Height)</span>
-                    <input type="number" step="0.1" value={Math.round(selectedObj.position.y * 100) / 100} onChange={(e) => updateObject(selectedObj.id, { position: { ...selectedObj.position, y: parseFloat(e.target.value) } })} className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs" />
-                  </div>
-                  <div className="space-y-0.5">
-                    <span className="text-[9px] text-slate-400">Z</span>
-                    <input type="number" step="0.1" value={Math.round(selectedObj.position.z * 100) / 100} onChange={(e) => updateObject(selectedObj.id, { position: { ...selectedObj.position, z: parseFloat(e.target.value) } })} className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Color */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-semibold text-slate-500 uppercase">Color</label>
-                <div className="flex items-center gap-2">
-                  <input type="color" value={selectedObj.color} onChange={(e) => updateObject(selectedObj.id, { color: e.target.value })} className="w-8 h-8 rounded cursor-pointer border-0 p-0" />
-                </div>
-              </div>
-
-              {/* Truss Structure Controls */}
-              {selectedObj.type === ObjectType.TRUSS_STRUCTURE && selectedObj.trussStructure && (() => {
-                const dims = getTrussDimensions(selectedObj.trussStructure);
-                return (
-                  <div className="space-y-3 border-t border-slate-200 pt-3">
-                    <label className="text-[10px] font-semibold text-slate-500 uppercase flex items-center gap-1">
-                      <GripHorizontal className="w-3 h-3" /> Truss 結構
-                    </label>
-                    <div className="rounded-lg bg-white border border-slate-200 p-3 space-y-2">
-                      <div className="text-xs font-bold text-slate-700 leading-snug">
-                        {formatTrussTitle(selectedObj.trussStructure)}
-                      </div>
-                      <div className="text-[11px] text-slate-500">
-                        實際外徑 {selectedObj.trussStructure.kind === 'TOWER'
-                          ? `H${dims.heightCm}`
-                          : `W${dims.widthCm} × H${dims.heightCm}${selectedObj.trussStructure.kind === 'BACKDROP' ? ` × D${dims.depthCm || 0}` : ''}`} cm
-                      </div>
-                      <button
-                        onClick={() => onEditTrussStructure(selectedObj)}
-                        className="w-full h-8 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-colors"
-                      >
-                        編輯結構
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2">
-                      <span className="text-[11px] font-semibold text-slate-600">3D 段長色彩模式</span>
-                      <button
-                        onClick={() => updateObject(selectedObj.id, { trussSchematicColors: !selectedObj.trussSchematicColors })}
-                        className={`w-10 h-5 rounded-full p-0.5 transition-colors ${selectedObj.trussSchematicColors ? 'bg-blue-600' : 'bg-slate-300'}`}
-                        title={selectedObj.trussSchematicColors ? '切換寫實模式' : '切換段長色彩模式'}
-                      >
-                        <span className={`block w-4 h-4 rounded-full bg-white shadow transition-transform ${selectedObj.trussSchematicColors ? 'translate-x-5' : ''}`} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Table Cloth Presets */}
-              {(selectedObj.type === ObjectType.ROUND_TABLE || selectedObj.type === ObjectType.RECT_TABLE) && (
-                <div className="space-y-3 border-t border-slate-200 pt-3">
-                  <label className="text-[10px] font-semibold text-slate-500 uppercase flex items-center gap-1">
-                    <PaintBucket className="w-3 h-3" /> 桌布預設 (Table Cloth)
-                  </label>
-                  {/* Preset swatches */}
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {TABLE_PRESETS.map(p => {
-                      const isActive = selectedObj.color === p.color && selectedObj.tableCloth === p.cloth;
-                      return (
-                        <button
-                          key={p.id}
-                          onClick={() => updateObject(selectedObj.id, { color: p.color, tableCloth: p.cloth })}
-                          className={`group flex flex-col items-center gap-1 p-1.5 rounded-lg border transition-all ${isActive ? 'border-blue-400 bg-blue-50 shadow-sm' : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50'}`}
-                          title={`${p.name} (${TABLE_CLOTH_MATERIALS[p.cloth].label})`}
-                        >
-                          <div
-                            className={`w-6 h-6 rounded-full border-2 shadow-sm transition-transform group-hover:scale-110 ${isActive ? 'border-blue-400 scale-110' : 'border-slate-200'}`}
-                            style={{ backgroundColor: p.color }}
-                          />
-                          <span className="text-[9px] font-medium text-slate-500 leading-tight">{p.name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {/* Material type selector */}
-                  <div className="space-y-1.5">
-                    <label className="text-[9px] font-semibold text-slate-400 uppercase">材質 (Material)</label>
-                    <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
-                      {(Object.entries(TABLE_CLOTH_MATERIALS) as [TableCloth, typeof TABLE_CLOTH_MATERIALS[TableCloth]][]).map(([key, m]) => (
-                        <button
-                          key={key}
-                          onClick={() => updateObject(selectedObj.id, { tableCloth: key })}
-                          className={`flex-1 py-1.5 text-[10px] font-bold rounded-md transition-all ${(selectedObj.tableCloth || 'linen') === key ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                        >
-                          {m.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Pan */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-[10px] font-semibold text-slate-500 uppercase">
-                  <span>Pan</span> <span>{Math.round(selectedObj.rotation.y * (180 / Math.PI))}°</span>
-                </div>
-                <input type="range" min={-Math.PI} max={Math.PI} step={0.1} value={selectedObj.rotation.y} onChange={(e) => updateObject(selectedObj.id, { rotation: { ...selectedObj.rotation, y: parseFloat(e.target.value) } })} className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
-              </div>
-
-              {/* Round Table Size */}
-              {selectedObj.type === ObjectType.ROUND_TABLE && (
-                <div className="space-y-2">
-                  <label className="text-[10px] font-semibold text-slate-500 uppercase">Size (Feet)</label>
-                  <select value={selectedObj.customSize || 6} onChange={(e) => updateObject(selectedObj.id, { customSize: parseInt(e.target.value) })} className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs">
-                    <option value={4}>4 尺 (5人)</option>
-                    <option value={5}>5 尺 (8人)</option>
-                    <option value={6}>6 尺 (10人)</option>
-                    <option value={8}>8 尺 (12人)</option>
-                  </select>
-                </div>
-              )}
-
-              {/* Red Carpet Dimensions */}
-              {selectedObj.type === ObjectType.RED_CARPET && (
-                <div className="space-y-2 border-t border-slate-200 pt-2">
-                  <label className="text-[10px] font-semibold text-slate-500 uppercase">Red Carpet Dimensions</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-slate-500">Width (m)</label>
-                      <input type="number" step="0.1" min="0.5" value={selectedObj.customWidth || 1.5} onChange={(e) => updateObject(selectedObj.id, { customWidth: parseFloat(e.target.value) })} className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-slate-500">Length (m)</label>
-                      <input type="number" step="0.5" min="1" value={selectedObj.customDepth || 10} onChange={(e) => updateObject(selectedObj.id, { customDepth: parseFloat(e.target.value) })} className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs" />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Stage Config */}
-              {selectedObj.type === ObjectType.STAGE && (
-                <div className="space-y-4 pt-2 border-t border-slate-200">
-                  <h4 className="text-[10px] font-bold text-slate-600 uppercase">Stage Configuration</h4>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-slate-500 font-semibold">Width (m)</label>
-                      <input type="number" step="0.5" value={selectedObj.customWidth} onChange={(e) => updateObject(selectedObj.id, { customWidth: parseFloat(e.target.value) })} className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-slate-500 font-semibold">Depth (m)</label>
-                      <input type="number" step="0.5" value={selectedObj.customDepth} onChange={(e) => updateObject(selectedObj.id, { customDepth: parseFloat(e.target.value) })} className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-slate-500 font-semibold">Height (m)</label>
-                      <input type="number" step="0.1" value={selectedObj.customHeight} onChange={(e) => updateObject(selectedObj.id, { customHeight: parseFloat(e.target.value) })} className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs" />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-semibold text-slate-500 uppercase flex items-center gap-1"><Footprints className="w-3 h-3" /> Stairs</label>
-                      <button onClick={() => handleAddStair(selectedObj.id)} className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-bold hover:bg-blue-100 transition-colors">+ Add</button>
-                    </div>
-                    <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
-                      {(selectedObj.stairs || []).map((stair, idx) => (
-                        <div key={stair.id} className="bg-slate-50 p-2 rounded border border-slate-100 space-y-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[9px] font-bold text-slate-400 w-3">{idx + 1}</span>
-                            <select
-                              value={stair.side}
-                              onChange={(e) => handleUpdateStair(selectedObj.id, stair.id, { side: e.target.value as StairSide })}
-                              className="flex-1 bg-white border border-slate-200 text-[10px] rounded px-1 py-0.5"
-                            >
-                              <option value="front">Front (前)</option>
-                              <option value="back">Back (後)</option>
-                              <option value="left">Left (左)</option>
-                              <option value="right">Right (右)</option>
-                            </select>
-                            <button onClick={() => handleRemoveStair(selectedObj.id, stair.id)} className="text-slate-400 hover:text-red-500"><X className="w-3 h-3" /></button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="flex items-center gap-1">
-                              <span className="text-[9px] text-slate-400">Pos</span>
-                              <input type="range" min={-5} max={5} step={0.1} value={stair.offset} onChange={(e) => handleUpdateStair(selectedObj.id, stair.id, { offset: parseFloat(e.target.value) })} className="flex-1 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500" />
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <span className="text-[9px] text-slate-400">Wid</span>
-                              <input type="number" step="0.1" value={stair.width} onChange={(e) => handleUpdateStair(selectedObj.id, stair.id, { width: parseFloat(e.target.value) })} className="w-full bg-white border border-slate-200 rounded px-1 py-0.5 text-[10px]" />
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                      {(!selectedObj.stairs || selectedObj.stairs.length === 0) && (
-                        <div className="text-[9px] text-slate-400 text-center py-2 italic">No stairs added</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Stand Type */}
-              {(selectedObj.type === ObjectType.SPEAKER_15 || selectedObj.type === ObjectType.LIGHT_STAND) && (
-                <div className="space-y-2 border-t border-slate-200 pt-2">
-                  <label className="text-[10px] font-semibold text-slate-500 uppercase">Stand Base</label>
-                  <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
-                    <button
-                      onClick={() => updateObject(selectedObj.id, { standType: 'TRIPOD' })}
-                      className={`flex-1 py-1.5 text-[10px] font-bold rounded-md transition-all ${!selectedObj.standType || selectedObj.standType === 'TRIPOD' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                      Tripod (腳架)
-                    </button>
-                    <button
-                      onClick={() => updateObject(selectedObj.id, { standType: 'PLATE' })}
-                      className={`flex-1 py-1.5 text-[10px] font-bold rounded-md transition-all ${selectedObj.standType === 'PLATE' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                      Plate (鐵板)
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Light Controls */}
-              {isSelectedLight && (
-                <>
-                  <div className="space-y-2 border-t border-slate-200 pt-2">
-                    <div className="flex justify-between text-[10px] font-semibold text-slate-500 uppercase"><span>Head Tilt</span><span>{Math.round((selectedObj.rotation.x || 0) * (180 / Math.PI))}°</span></div>
-                    <input type="range" min={-Math.PI / 2} max={Math.PI / 2} step={0.1} value={selectedObj.rotation.x || 0} onChange={(e) => updateObject(selectedObj.id, { rotation: { ...selectedObj.rotation, x: parseFloat(e.target.value) } })} className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-[10px] font-semibold text-slate-500 uppercase"><span>Intensity</span><span>{Math.round((selectedObj.intensity || 1) * 100)}%</span></div>
-                    <input type="range" min={0} max={3} step={0.1} value={selectedObj.intensity || 1} onChange={(e) => updateObject(selectedObj.id, { intensity: parseFloat(e.target.value) })} className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-yellow-500" />
-                  </div>
-                </>
-              )}
-            </>
-          )}
+            <div className="grid grid-cols-2 gap-3">
+              <NumberField label="位置" value={stair.offset} min={-5} max={5} step={0.1} unit="m" onChange={offset => handleUpdateStair(object.id, stair.id, { offset })} />
+              <NumberField label="寬度" value={stair.width} step={0.1} unit="m" onChange={width => handleUpdateStair(object.id, stair.id, { width })} />
+            </div>
+          </div>)}
+          {!object.stairs?.length && <p className="text-xs text-slate-500">尚未新增樓梯</p>}
         </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center h-full text-slate-400 space-y-2">
-          <MousePointer2 className="w-8 h-8 opacity-20" />
-          <span className="text-xs font-medium">Select an object (Shift+Click for multiple)</span>
+      </section>}
+      {(object.type === ObjectType.SPEAKER_15 || object.type === ObjectType.LIGHT_STAND) && <section className="space-y-3">
+        <h3 className="ui-section-title">支架底座</h3>
+        <div className="ui-segmented flex w-full">
+          <button type="button" className="ui-segment flex-1" aria-pressed={!object.standType || object.standType === 'TRIPOD'} onClick={() => updateObject(object.id, { standType: 'TRIPOD' })}>腳架</button>
+          <button type="button" className="ui-segment flex-1" aria-pressed={object.standType === 'PLATE'} onClick={() => updateObject(object.id, { standType: 'PLATE' })}>鐵板</button>
         </div>
-      )}
-    </div>
-  );
+      </section>}
+      {object.type === ObjectType.TRUSS_STRUCTURE && object.trussStructure && (() => {
+        const dimensions = getTrussDimensions(object.trussStructure);
+        return <section className="space-y-3">
+          <h3 className="ui-section-title">Truss 結構</h3>
+          <div className="ui-card space-y-3 p-3">
+            <p className="text-sm font-medium">{formatTrussTitle(object.trussStructure)}</p>
+            <p className="text-xs text-slate-500">實際外徑：{object.trussStructure.kind === 'TOWER' ? `高 ${dimensions.heightCm}` : `寬 ${dimensions.widthCm} × 高 ${dimensions.heightCm}${object.trussStructure.kind === 'BACKDROP' ? ` × 深 ${dimensions.depthCm ?? 0}` : ''}`} 公分</p>
+            <button type="button" className="ui-btn-secondary w-full" onClick={() => onEditTrussStructure(object)}>編輯結構</button>
+          </div>
+          <button type="button" role="switch" aria-checked={!!object.trussSchematicColors} aria-label="段長配色" className="flex min-h-10 w-full items-center justify-between rounded-lg text-sm text-slate-700" onClick={() => updateObject(object.id, { trussSchematicColors: !object.trussSchematicColors })}>
+            段長配色<span className={`flex h-6 w-11 items-center rounded-full p-1 ${object.trussSchematicColors ? 'bg-slate-700' : 'bg-slate-200'}`}><span className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${object.trussSchematicColors ? 'translate-x-5' : ''}`} /></span>
+          </button>
+        </section>;
+      })()}
+    </>}
+  </div>;
 };

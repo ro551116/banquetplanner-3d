@@ -1,31 +1,52 @@
 import { useCallback } from 'react';
-import { BanquetObject, ObjectType, HallConfig, StairConfig } from '../types';
+import { BanquetObject, StairConfig } from '../types';
 import { INITIAL_OBJECTS } from '../constants';
-import { generateLayout } from '../services/geminiService';
 import { useHistory } from './useHistory';
 import { cloneTrussConfig } from '../trussConfig';
+
+function applyUpdates(object: BanquetObject, updates: Partial<BanquetObject>): BanquetObject {
+  const unchanged = (Object.keys(updates) as Array<keyof BanquetObject>).every(key => {
+    if (Object.is(object[key], updates[key])) return true;
+    if (key === 'position' || key === 'rotation' || key === 'scale') {
+      const next = updates[key];
+      return next !== undefined && object[key].x === next.x && object[key].y === next.y && object[key].z === next.z;
+    }
+    return false;
+  });
+  return unchanged ? object : { ...object, ...updates };
+}
+
+function updateMatching(objects: BanquetObject[], matches: (object: BanquetObject) => boolean, updates: Partial<BanquetObject>): BanquetObject[] {
+  let changed = false;
+  const next = objects.map(object => {
+    const updated = matches(object) ? applyUpdates(object, updates) : object;
+    if (updated !== object) changed = true;
+    return updated;
+  });
+  return changed ? next : objects;
+}
 
 export function useObjects() {
   const { state: objects, set: setObjects, undo, redo, reset: resetObjects, canUndo, canRedo } = useHistory<BanquetObject[]>(INITIAL_OBJECTS);
 
-  const updateObject = useCallback((id: string, updates: Partial<BanquetObject>) => {
-    setObjects(prev => prev.map(obj => obj.id === id ? { ...obj, ...updates } : obj));
+  const updateObject = useCallback((id: string, updates: Partial<BanquetObject>, mergeKey?: string) => {
+    setObjects(prev => updateMatching(prev, obj => obj.id === id, updates), { mergeKey });
   }, [setObjects]);
 
   const deleteObject = useCallback((id: string) => {
-    setObjects(prev => prev.filter(obj => obj.id !== id));
+    setObjects(prev => prev.some(obj => obj.id === id) ? prev.filter(obj => obj.id !== id) : prev);
   }, [setObjects]);
 
   const deleteByIds = useCallback((ids: Set<string>) => {
-    setObjects(prev => prev.filter(obj => !ids.has(obj.id)));
+    setObjects(prev => prev.some(obj => ids.has(obj.id)) ? prev.filter(obj => !ids.has(obj.id)) : prev);
   }, [setObjects]);
 
   const handleBatchUpdate = useCallback((updates: Record<string, Partial<BanquetObject>>) => {
     setObjects(prev => prev.map(obj => updates[obj.id] ? { ...obj, ...updates[obj.id] } : obj));
   }, [setObjects]);
 
-  const handleBulkPropertyUpdate = useCallback((ids: Set<string>, updates: Partial<BanquetObject>) => {
-    setObjects(prev => prev.map(obj => ids.has(obj.id) ? { ...obj, ...updates } : obj));
+  const handleBulkPropertyUpdate = useCallback((ids: Set<string>, updates: Partial<BanquetObject>, mergeKey?: string) => {
+    setObjects(prev => updateMatching(prev, obj => ids.has(obj.id), updates), { mergeKey });
   }, [setObjects]);
 
   const handleBatchAddObjects = useCallback((newObjects: BanquetObject[]) => {
@@ -75,27 +96,6 @@ export function useObjects() {
     }));
   }, [setObjects]);
 
-  const handleGenerate = useCallback(async (hall: HallConfig, prompt: string) => {
-    const newLayout = await generateLayout(hall.width, hall.length, prompt);
-    const newObjects = newLayout.map(item => ({
-      id: crypto.randomUUID(),
-      type: item.type || ObjectType.ROUND_TABLE,
-      position: item.position || { x: 0, y: 0, z: 0 },
-      rotation: item.rotation || { x: 0, y: 0, z: 0 },
-      scale: { x: 1, y: 1, z: 1 },
-      color: (item.type as string)?.includes('LIGHT') ? '#fbbf24' : '#ffffff',
-      label: item.label,
-      customSize: item.type === ObjectType.ROUND_TABLE ? 6 : undefined,
-      customWidth: item.type === ObjectType.STAGE ? 6 : undefined,
-      customDepth: item.type === ObjectType.STAGE ? 4 : undefined,
-      customHeight: item.type === ObjectType.STAGE ? 0.5 : undefined,
-      intensity: (item.type as string)?.includes('LIGHT') ? 1.5 : undefined,
-      standType: 'TRIPOD' as const,
-      stairs: item.type === ObjectType.STAGE ? [{ id: crypto.randomUUID(), side: 'front' as const, offset: 0, width: 2 }] : undefined
-    })) as BanquetObject[];
-    setObjects(newObjects);
-    return newObjects;
-  }, [setObjects]);
 
   return {
     objects,
@@ -111,7 +111,6 @@ export function useObjects() {
     handleAddStair,
     handleRemoveStair,
     handleUpdateStair,
-    handleGenerate,
     undo,
     redo,
     canUndo,

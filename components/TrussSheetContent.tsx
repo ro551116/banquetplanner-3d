@@ -95,17 +95,17 @@ export const TrussCard: React.FC<TrussCardProps> = ({
   };
 
   return (
-    <section className={`truss-print-card bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden ${className}`}>
+    <section className={`truss-print-card ui-card overflow-hidden ${className}`}>
       <div className="truss-no-print flex flex-col gap-3 px-4 py-3 border-b border-slate-100 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <div className="text-sm font-bold text-slate-800 truncate">{title}</div>
-          {subtitle && <div className="text-[11px] text-slate-500">{subtitle}</div>}
+          <div className="text-sm font-semibold text-slate-900 truncate">{title}</div>
+          {subtitle && <div className="text-xs text-slate-500">{subtitle}</div>}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {actions}
           <button
             onClick={handleDownload}
-            className="h-8 px-3 rounded-lg bg-white border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 flex items-center gap-1.5"
+            className="ui-btn-secondary"
           >
             <Download className="w-3.5 h-3.5" />
             PNG
@@ -119,15 +119,15 @@ export const TrussCard: React.FC<TrussCardProps> = ({
           quantityOverride={effectiveQuantity}
         />
       </div>
-      <div className="truss-no-print grid grid-cols-8 gap-2 px-4 py-3 border-t border-slate-100 bg-slate-50">
+      <div className="truss-no-print grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-xs px-4 py-3 bg-slate-50">
         {TRUSS_SEGMENT_LENGTHS.map(length => (
-          <div key={length} className="text-[11px] text-slate-600">
-            <span className="inline-block w-3 h-2 mr-1 border border-slate-300" style={{ backgroundColor: TRUSS_SEGMENT_COLORS[length] }} />
-            {length}: <b>{bom.segments[length]}</b>
+          <div key={length} className="text-slate-500">
+            <span className={`inline-block w-3 h-2 mr-1 border border-slate-300 ${bom.segments[length] === 0 ? 'opacity-40' : ''}`} style={{ backgroundColor: TRUSS_SEGMENT_COLORS[length] }} />
+            {length}：<span className={`tabular-nums font-semibold ${bom.segments[length] === 0 ? 'text-slate-400' : 'text-slate-900'}`}>{bom.segments[length]}</span>
           </div>
         ))}
-        <div className="text-[11px] text-slate-600">對接頭: <b>{bom.couplers}</b></div>
-        <div className="text-[11px] text-slate-600">鐵板: <b>{bom.basePlates}</b></div>
+        <div className="text-slate-500">對接頭：<span className={`tabular-nums font-semibold ${bom.couplers === 0 ? 'text-slate-400' : 'text-slate-900'}`}>{bom.couplers}</span></div>
+        <div className="text-slate-500">鐵板：<span className={`tabular-nums font-semibold ${bom.basePlates === 0 ? 'text-slate-400' : 'text-slate-900'}`}>{bom.basePlates}</span></div>
       </div>
     </section>
   );
@@ -146,25 +146,25 @@ export const TrussBomSummary: React.FC<TrussBomSummaryProps> = ({
   className = '',
   printable = false,
 }) => (
-  <section className={`${printable ? '' : 'truss-no-print'} bg-white rounded-lg border border-slate-200 shadow-sm p-4 ${className}`}>
-    <h4 className="text-xs font-bold text-slate-700 mb-3">{title}</h4>
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+  <section className={`${printable ? '' : 'truss-no-print'} ui-card p-4 ${className}`}>
+    <h4 className="text-sm font-semibold text-slate-900 mb-3">{title}</h4>
+    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-xs">
       {TRUSS_SEGMENT_LENGTHS.map(length => (
         <div key={length} className="flex items-center justify-between border border-slate-100 rounded-md px-3 py-2 text-xs">
           <span className="flex items-center gap-2">
-            <span className="w-6 h-3 border border-slate-300" style={{ backgroundColor: TRUSS_SEGMENT_COLORS[length] }} />
+            <span className={`w-4 h-2 border border-slate-300 ${bom.segments[length] === 0 ? 'opacity-40' : ''}`} style={{ backgroundColor: TRUSS_SEGMENT_COLORS[length] }} />
             {length}cm
           </span>
-          <b>{bom.segments[length]}</b>
+          <span className={`tabular-nums font-semibold ${bom.segments[length] === 0 ? 'text-slate-400' : 'text-slate-900'}`}>{bom.segments[length]}</span>
         </div>
       ))}
       <div className="flex items-center justify-between border border-slate-100 rounded-md px-3 py-2 text-xs">
         <span>對接頭</span>
-        <b>{bom.couplers}</b>
+        <span className={`tabular-nums font-semibold ${bom.couplers === 0 ? 'text-slate-400' : 'text-slate-900'}`}>{bom.couplers}</span>
       </div>
       <div className="flex items-center justify-between border border-slate-100 rounded-md px-3 py-2 text-xs">
         <span>鐵板</span>
-        <b>{bom.basePlates}</b>
+        <span className={`tabular-nums font-semibold ${bom.basePlates === 0 ? 'text-slate-400' : 'text-slate-900'}`}>{bom.basePlates}</span>
       </div>
     </div>
   </section>
