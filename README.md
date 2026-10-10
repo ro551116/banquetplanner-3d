@@ -34,6 +34,7 @@ Lighting is a visual approximation, not a photometric simulation. Fixture spotli
 - Round and rectangular tables have draped cloth, curved upholstered chair backs and tubular frames. Chairs use three instanced meshes per table while remaining selectable as part of that table.
 - Stage decks retain their exact configured top height, with pleated skirts, optional backdrop drapes and stairs on all four sides. Screens, LED walls, dance floors and furniture retain their existing dimension/color fields.
 - Audio cabinets use shaped shells and aligned perforated grilles; lighting fixtures have separate housings, yokes, lenses and stands. Head tilt does not tilt floor supports.
+- PAR, moving head, wash and strobe fixtures can also be clamped to a truss beam: standing on the top face or hung upside down under it, on a bridge bar with a half-coupler on each chord.
 - Visible emission stays on the lens/LED face, with no solid cone overlays. Round fixtures project from their apertures; wash and strobe panels use forward-facing rectangular area lights. Zero intensity disables the emitter, and both source types follow head tilt and day/night intensity scaling.
 - Truss sections merge rounded tubes and braces into one mesh. Preset joints use the existing connector dimension; engineering calculations, segment lists and BOM rules are unchanged.
 - Dimension-dependent geometries and selection outlines release replaced GPU resources. Shared fixed-size geometry remains reusable across objects and placement previews.
@@ -60,6 +61,7 @@ Lighting is a visual approximation, not a photometric simulation. Fixture spotli
 
 - New scenes place the two tripod speakers on the floor outside the stage's left/right edges, with clearance for their feet. Existing saved layouts are not repositioned.
 - Choose equipment in the palette, move the translucent preview over the scene, then click/tap to place. Placement recognizes stage tops. New truss structures also enter placement after the builder; a multi-structure quantity commits together.
+- **Lights on truss:** while placing a PAR, moving head, wash or strobe, the floating bar switches 落地 / 正掛 truss / 倒吊 truss (remembered for the next light). On a truss setting the preview clamps to the beam the pointer passes over (top face or underneath, stepped along the beam by the snap size) and faces into the hall; placement continues fixture after fixture until Esc. Hung fixtures start aimed about 35° down, and their 仰角 slider moves the beam the same way as a standing fixture's. In the properties panel 安裝方式 moves a placed light back to the floor or onto the nearest beam within 2 m. A clamped light moves, rotates, duplicates and is deleted with its truss.
 - Click an object to select; Shift-click toggles multi-selection; click empty floor (without dragging) to clear the selection. Drag a selected object to move the selection together. Ground-parallel movement preserves every object's existing height.
 - **G — Move:** drag on the XZ plane; arrow keys nudge in XZ.
 - **R — Rotate:** drag horizontally around the selection's shared center; left/right arrows rotate.

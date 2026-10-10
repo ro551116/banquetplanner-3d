@@ -1,4 +1,5 @@
-import { BanquetObject, DeviceSystem, HallConfig, ObjectType, PathPoint } from './types';
+import { BanquetObject, DeviceSystem, HallConfig, LightMount, ObjectType, PathPoint, Vector3 } from './types';
+import { getTrussBeamLines, TRUSS_CROSS_SECTION, TrussBeamLine } from './trussConfig';
 
 /** Round table geometry and default chair count per size in feet. */
 export const ROUND_TABLE_SPECS: Record<number, { r: number; chairs: number }> = {
@@ -71,7 +72,7 @@ export function summarizeSeating(objects: BanquetObject[]): SeatingSummary {
   return summary;
 }
 
-/* ---- Table number plates stand on table tops and travel with their table. */
+/* ---- Attachments: number plates stand on table tops, lights clamp to truss beams; both travel with their host. */
 
 export interface TableTop {
   /** Top surface height above the table's own position.y. */
@@ -125,13 +126,102 @@ export function isOnTable(plate: BanquetObject, table: BanquetObject): boolean {
   return !!top && Math.abs(plate.position.y - (table.position.y + top.height)) < 0.05 && top.contains(plate.position);
 }
 
-/** Plates standing on any of the given tables (not themselves in the set). */
-export function attachedTableNumbers(objects: BanquetObject[], tableIds: Set<string>): Set<string> {
-  const tables = objects.filter(object => tableIds.has(object.id) && getTableTop(object));
+/**
+ * Lights that can be clamped to a truss beam (stands and follow spots keep their own base), with the head tilt
+ * that aims each one about 35° below horizontal when hung upside down (the models add their own head offset).
+ */
+export const TRUSS_MOUNT_TYPES: Partial<Record<ObjectType, { hungTilt: number }>> = {
+  [ObjectType.LIGHT]: { hungTilt: -0.2 },
+  [ObjectType.LIGHT_PAR]: { hungTilt: -0.2 },
+  [ObjectType.LIGHT_MOVING]: { hungTilt: -0.6 },
+  [ObjectType.LIGHT_WASH]: { hungTilt: -0.2 },
+  [ObjectType.LIGHT_STROBE]: { hungTilt: -0.6 },
+};
+
+export const LIGHT_MOUNT_LABELS: Record<LightMount, string> = { floor: '落地', upright: '正掛 truss', inverted: '倒吊 truss' };
+
+/** Horizontal truss members in world coordinates (heading only; trusses are not pitched or rolled). */
+export function getTrussBeams(object: BanquetObject): TrussBeamLine[] {
+  let lines: TrussBeamLine[];
+  if (object.type === ObjectType.TRUSS_STRAIGHT) {
+    const half = (object.customWidth ?? 3) / 2, y = TRUSS_CROSS_SECTION / 2;
+    lines = [{ start: { x: -half, y, z: 0 }, end: { x: half, y, z: 0 } }];
+  } else if (object.type === ObjectType.TRUSS_STRUCTURE && object.trussStructure) {
+    lines = getTrussBeamLines(object.trussStructure);
+  } else {
+    return [];
+  }
+  const cos = Math.cos(object.rotation.y), sin = Math.sin(object.rotation.y);
+  const toWorld = (p: Vector3): Vector3 => ({
+    x: object.position.x + p.x * cos + p.z * sin,
+    y: object.position.y + p.y,
+    z: object.position.z - p.x * sin + p.z * cos,
+  });
+  return lines.map(line => ({ start: toWorld(line.start), end: toWorld(line.end) }));
+}
+
+/** Fraction along the beam's floor projection closest to the point, clamped to the beam. */
+function beamParameter(beam: TrussBeamLine, point: { x: number; z: number }): number {
+  const dx = beam.end.x - beam.start.x, dz = beam.end.z - beam.start.z;
+  const lengthSq = dx * dx + dz * dz;
+  if (lengthSq === 0) return 0;
+  return Math.min(1, Math.max(0, ((point.x - beam.start.x) * dx + (point.z - beam.start.z) * dz) / lengthSq));
+}
+
+/** Where a clamped light sits and which way it faces. */
+export interface TrussMountPose {
+  position: Vector3;
+  rotationY: number;
+}
+
+/**
+ * Pose of a light clamped to `beam` at the point nearest `point`: standing on the top face (upright) or
+ * hanging under the bottom face (inverted), its front turned square to the beam on the side `facing` points to.
+ */
+export function trussMountPose(
+  beam: TrussBeamLine,
+  point: { x: number; z: number },
+  mount: Exclude<LightMount, 'floor'>,
+  facing: { x: number; z: number },
+): TrussMountPose {
+  const t = beamParameter(beam, point);
+  const dx = beam.end.x - beam.start.x, dz = beam.end.z - beam.start.z;
+  const side = dz * facing.x - dx * facing.z >= 0 ? 1 : -1;
+  return {
+    position: {
+      x: beam.start.x + dx * t,
+      y: beam.start.y + (beam.end.y - beam.start.y) * t + (mount === 'inverted' ? -1 : 1) * TRUSS_CROSS_SECTION / 2,
+      z: beam.start.z + dz * t,
+    },
+    rotationY: Math.atan2(side * dz, -side * dx),
+  };
+}
+
+/** A light is mounted on a truss when it is clamped (upright on top or inverted below) to one of its beams, within 5 cm. */
+export function isMountedOn(light: BanquetObject, truss: BanquetObject): boolean {
+  if (!TRUSS_MOUNT_TYPES[light.type] || (light.mount !== 'upright' && light.mount !== 'inverted')) return false;
+  const offset = (light.mount === 'inverted' ? -1 : 1) * TRUSS_CROSS_SECTION / 2;
+  return getTrussBeams(truss).some(beam => {
+    const t = beamParameter(beam, light.position);
+    const x = beam.start.x + (beam.end.x - beam.start.x) * t, z = beam.start.z + (beam.end.z - beam.start.z) * t;
+    const y = beam.start.y + (beam.end.y - beam.start.y) * t + offset;
+    return Math.hypot(light.position.x - x, light.position.z - z) < 0.05 && Math.abs(light.position.y - y) < 0.05;
+  });
+}
+
+/** Whether `child` rides on `host`: a number plate on a table top or a light clamped to a truss beam. */
+export const isAttachedTo = (child: BanquetObject, host: BanquetObject) => isOnTable(child, host) || isMountedOn(child, host);
+
+const canHost = (object: BanquetObject) =>
+  object.type === ObjectType.TRUSS_STRAIGHT || object.type === ObjectType.TRUSS_STRUCTURE || getTableTop(object) !== null;
+
+/** Objects riding on any of the given hosts (not themselves in the set). */
+export function attachedObjects(objects: BanquetObject[], hostIds: Set<string>): Set<string> {
+  const hosts = objects.filter(object => hostIds.has(object.id) && canHost(object));
   const attached = new Set<string>();
-  if (!tables.length) return attached;
+  if (!hosts.length) return attached;
   for (const object of objects) {
-    if (!tableIds.has(object.id) && tables.some(table => isOnTable(object, table))) attached.add(object.id);
+    if (!hostIds.has(object.id) && hosts.some(host => isAttachedTo(object, host))) attached.add(object.id);
   }
   return attached;
 }
@@ -139,40 +229,40 @@ export function attachedTableNumbers(objects: BanquetObject[], tableIds: Set<str
 const samePosition = (a: BanquetObject, b: BanquetObject) => a.position.x === b.position.x && a.position.y === b.position.y && a.position.z === b.position.z;
 
 /**
- * Moves plates with their table: every table whose position or heading changed from `previous` to `next`
- * carries the plates that stood on it, unless a plate was moved in the same update. Returns `next` itself
- * when nothing needs carrying.
+ * Moves attached objects with their host: every table or truss whose position or heading changed from
+ * `previous` to `next` carries the plates and lights riding on it, unless one of them was moved in the
+ * same update. Returns `next` itself when nothing needs carrying.
  */
-export function carryTableNumbers(previous: BanquetObject[], next: BanquetObject[]): BanquetObject[] {
+export function carryAttachedObjects(previous: BanquetObject[], next: BanquetObject[]): BanquetObject[] {
   if (previous === next) return next;
   const before = new Map(previous.map(object => [object.id, object]));
   const moves: Array<{ from: BanquetObject; to: BanquetObject }> = [];
-  for (const table of next) {
-    const old = before.get(table.id);
-    if (old && old !== table && getTableTop(table) && (!samePosition(old, table) || old.rotation.y !== table.rotation.y)) moves.push({ from: old, to: table });
+  for (const host of next) {
+    const old = before.get(host.id);
+    if (old && old !== host && canHost(host) && (!samePosition(old, host) || old.rotation.y !== host.rotation.y)) moves.push({ from: old, to: host });
   }
   if (!moves.length) return next;
   let changed = false;
-  const result = next.map(plate => {
-    if (plate.type !== ObjectType.TABLE_NUMBER) return plate;
-    const old = before.get(plate.id);
-    if (!old || !samePosition(old, plate)) return plate;
-    const move = moves.find(candidate => isOnTable(old, candidate.from));
-    if (!move) return plate;
+  const result = next.map(child => {
+    if (child.type !== ObjectType.TABLE_NUMBER && !TRUSS_MOUNT_TYPES[child.type]) return child;
+    const old = before.get(child.id);
+    if (!old || !samePosition(old, child)) return child;
+    const move = moves.find(candidate => isAttachedTo(old, candidate.from));
+    if (!move) return child;
     const { from, to } = move;
-    // Plate offset in the old table's frame, re-applied in the new one.
+    // Offset in the old host's frame, re-applied in the new one.
     const dx = old.position.x - from.position.x, dz = old.position.z - from.position.z;
     const back = -from.rotation.y, turn = to.rotation.y;
     const lx = dx * Math.cos(back) + dz * Math.sin(back), lz = -dx * Math.sin(back) + dz * Math.cos(back);
     changed = true;
     return {
-      ...plate,
+      ...child,
       position: {
         x: to.position.x + lx * Math.cos(turn) + lz * Math.sin(turn),
-        y: plate.position.y + to.position.y - from.position.y,
+        y: child.position.y + to.position.y - from.position.y,
         z: to.position.z - lx * Math.sin(turn) + lz * Math.cos(turn),
       },
-      rotation: { ...plate.rotation, y: plate.rotation.y + turn - from.rotation.y },
+      rotation: { ...child.rotation, y: child.rotation.y + turn - from.rotation.y },
     };
   });
   return changed ? result : next;

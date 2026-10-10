@@ -3,7 +3,7 @@ import { useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { BanquetObject } from '../types';
 import { EditTool, EditorSession } from '../interaction';
-import { attachedTableNumbers } from '../planning';
+import { attachedObjects } from '../planning';
 
 interface ObjectEvents {
   onObjectPointerDown: (id: string, event: ThreeEvent<PointerEvent>) => void;
@@ -156,8 +156,8 @@ export function DirectManipulation(props: DirectManipulationProps) {
       if (!state.enabled || event.button !== 0 || gesture || event.isPrimary === false) return;
       event.stopPropagation();
       const ids = state.selectedIds.has(id) && !event.shiftKey ? state.selectedIds : new Set([id]);
-      // Plates standing on a dragged table ride along live (and are committed with it).
-      const followers = attachedTableNumbers(state.objects, ids);
+      // Plates on a dragged table and lights clamped to a dragged truss ride along live (and are committed with it).
+      const followers = attachedObjects(state.objects, ids);
       const initial: InitialObject[] = [];
       for (const object of state.objects) {
         const group = state.objectRefs.current[object.id];

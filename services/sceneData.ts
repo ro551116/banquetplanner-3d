@@ -29,6 +29,7 @@ const OPTIONAL_FIELD_CHECKS: Record<string, (value: unknown) => boolean> = {
   voltage: value => value === '110V' || value === '220V',
   system: value => typeof value === 'string' && Object.hasOwn(DEVICE_SYSTEMS, value),
   plateStyle: value => value === 'table' || value === 'floor',
+  mount: value => value === 'floor' || value === 'upright' || value === 'inverted',
 };
 const PLAN_INFO_KEYS = ['title', 'venue', 'date', 'version', 'notes'] as const;
 

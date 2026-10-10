@@ -1,10 +1,10 @@
 import React from 'react';
 import { MousePointer2, Trash2, X } from 'lucide-react';
 import { ObjectType } from '../types';
-import type { BanquetObject, DeviceSystem, StairConfig, StairSide, TableCloth } from '../types';
+import type { BanquetObject, DeviceSystem, LightMount, StairConfig, StairSide, TableCloth } from '../types';
 import { TABLE_PRESETS, TABLE_CLOTH_MATERIALS } from '../constants';
 import { formatTrussTitle, getTrussDimensions } from '../trussConfig';
-import { DEVICE_SYSTEM_ORDER, DEVICE_SYSTEMS, getRoundTableSpec, getSeating, getTableTop, isOnTable, isPathType, MAX_ROUND_TABLE_SEATS, nextDeviceCode, pathLength } from '../planning';
+import { DEVICE_SYSTEM_ORDER, DEVICE_SYSTEMS, getRoundTableSpec, getSeating, getTableTop, isMountedOn, isOnTable, isPathType, LIGHT_MOUNT_LABELS, MAX_ROUND_TABLE_SEATS, nextDeviceCode, pathLength, TRUSS_MOUNT_TYPES } from '../planning';
 import { OBJECT_TYPE_META, getObjectDisplayName } from './objectTypeMeta';
 import { NumberField, TextField } from './ui/NumberField';
 
@@ -61,12 +61,14 @@ interface PropertiesPanelProps {
   onRedrawPath: (object: BanquetObject) => void;
   /** Adds a tabletop number plate (with the table's label) to each given table that has none. */
   onAddTableNumbers: (tableIds: Set<string>) => void;
+  /** Puts a light back on the floor or clamps it to the nearest truss beam, upright or inverted. */
+  onRemountLight: (id: string, mount: LightMount) => void;
 }
 
 // Maps to (-180, 180] so dragging the slider to its right end shows 180° instead of jumping to -180°.
 const wrapDegrees = (radians: number) => 180 - ((((180 - radians * 180 / Math.PI) % 360) + 360) % 360);
 
-export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedIds, objects, updateObject, deleteSelected, handleBulkPropertyUpdate, handleAddStair, handleRemoveStair, handleUpdateStair, onEditTrussStructure, onRedrawPath, onAddTableNumbers }) => {
+export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedIds, objects, updateObject, deleteSelected, handleBulkPropertyUpdate, handleAddStair, handleRemoveStair, handleUpdateStair, onEditTrussStructure, onRedrawPath, onAddTableNumbers, onRemountLight }) => {
   const count = selectedIds.size;
   const object = count === 1 ? objects.find(item => selectedIds.has(item.id)) : undefined;
   if (count === 0) return null;
@@ -74,7 +76,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedIds, o
   const Icon = meta?.Icon ?? MousePointer2;
   const isLight = object?.type.includes('LIGHT');
   const pan = object ? wrapDegrees(object.rotation.y) : 0;
-  const tilt = object ? Math.max(-90, Math.min(90, wrapDegrees(object.rotation.x ?? 0))) : 0;
+  // A fixture hung upside down tilts the other way; flipping the shown value keeps the slider moving the beam the same way.
+  const tiltSign = object?.mount === 'inverted' && TRUSS_MOUNT_TYPES[object.type] ? -1 : 1;
+  const tilt = object ? Math.max(-90, Math.min(90, tiltSign * wrapDegrees(object.rotation.x ?? 0))) : 0;
   const seating = object ? getSeating(object) : null;
   const sizeFields = object ? (SIZE_FIELDS[object.type] ?? []).filter(field => !(object.type === ObjectType.COLUMN && object.shape === 'round' && field.key === 'customDepth'))
     .map(field => object.type === ObjectType.COLUMN && object.shape === 'round' && field.key === 'customWidth' ? { ...field, label: '直徑' } : field) : [];
@@ -115,10 +119,20 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedIds, o
           <NumberField label="水平角度" value={pan} min={-180} max={180} step={1} precision={0} unit="°" onChange={value => updateObject(object.id, { rotation: { ...object.rotation, y: value * Math.PI / 180 } })} />
           <input aria-label="水平角度" type="range" min={-180} max={180} step={1} value={pan} className="h-6 w-full cursor-pointer accent-blue-600 coarse:h-10" onChange={event => updateObject(object.id, { rotation: { ...object.rotation, y: Number(event.target.value) * Math.PI / 180 } }, `${object.id}:rotation.y`)} />
         </div>
+        {object && TRUSS_MOUNT_TYPES[object.type] && (() => {
+          const mount = object.mount ?? 'floor';
+          const truss = mount === 'floor' ? undefined : objects.find(item => isMountedOn(object, item));
+          return <div className="space-y-1.5">
+            <Segmented label="安裝方式" value={mount} options={Object.entries(LIGHT_MOUNT_LABELS) as Array<[LightMount, string]>} onChange={next => onRemountLight(object.id, next)} />
+            {mount !== 'floor' && <p className="text-xs text-slate-600">{truss
+              ? `夾在「${getObjectDisplayName(truss)}」橫梁上，移動或旋轉 truss 時會一起移動。`
+              : '沒有對準 truss 橫梁；再點一次安裝方式可吸附到 2 公尺內最近的橫梁。'}</p>}
+          </div>;
+        })()}
         {isLight && <>
           <div className="space-y-3">
-            <NumberField label="仰角" value={tilt} min={-90} max={90} step={1} precision={0} unit="°" onChange={value => updateObject(object.id, { rotation: { ...object.rotation, x: value * Math.PI / 180 } })} />
-            <input aria-label="仰角" type="range" min={-90} max={90} step={1} value={tilt} className="h-6 w-full cursor-pointer accent-blue-600 coarse:h-10" onChange={event => updateObject(object.id, { rotation: { ...object.rotation, x: Number(event.target.value) * Math.PI / 180 } }, `${object.id}:rotation.x`)} />
+            <NumberField label="仰角" value={tilt} min={-90} max={90} step={1} precision={0} unit="°" onChange={value => updateObject(object.id, { rotation: { ...object.rotation, x: tiltSign * value * Math.PI / 180 } })} />
+            <input aria-label="仰角" type="range" min={-90} max={90} step={1} value={tilt} className="h-6 w-full cursor-pointer accent-blue-600 coarse:h-10" onChange={event => updateObject(object.id, { rotation: { ...object.rotation, x: tiltSign * Number(event.target.value) * Math.PI / 180 } }, `${object.id}:rotation.x`)} />
           </div>
           <div className="space-y-1.5">
             <div className="flex justify-between text-xs text-slate-500"><span>亮度</span><span className="tabular-nums">{Math.round((object.intensity ?? 1) * 100)}%</span></div>

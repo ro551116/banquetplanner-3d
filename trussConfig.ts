@@ -7,6 +7,7 @@ import {
   TrussSegmentLength,
   TrussStructureConfig,
   TrussStructureKind,
+  Vector3,
 } from './types';
 
 export const TRUSS_SEGMENT_LENGTHS: TrussSegmentLength[] = [200, 150, 100, 50, 20, 10];
@@ -835,3 +836,79 @@ export const cloneTrussConfig = (config: TrussStructureConfig): TrussStructureCo
     segments: [...member.segments],
   })),
 });
+
+/** Box truss cross-section (m); beam lines are chord-box centrelines, so the top and bottom faces are ±half of it. */
+export const TRUSS_CROSS_SECTION = 0.3;
+
+export interface TrussBeamLine {
+  start: Vector3;
+  end: Vector3;
+}
+
+/**
+ * Horizontal members (beams, depth members) of a truss structure as centrelines in the object's local
+ * frame (metres, y up from the floor). Mirrors the layout drawn by TrussStructureModel; legs are left out
+ * because fixtures clamp to beams.
+ */
+export const getTrussBeamLines = (config: TrussStructureConfig): TrussBeamLine[] => {
+  const m = (cm: number) => cm / 100;
+  const coupler = m(COUPLER_LENGTH_CM);
+  const dims = getTrussDimensions(config);
+  const width = config.kind === 'TOWER' ? 0 : m(dims.widthCm);
+  const leftX = -width / 2 + coupler / 2;
+  const rightX = width / 2 - coupler / 2;
+  const topY = m(dims.heightCm) + 0.04 - coupler / 2;
+  const attachY = m(getEffectiveBeamAttachCm(config)) + 0.04 + coupler / 2;
+  const lines: TrussBeamLine[] = [];
+  const add = (member: TrussMember | undefined, start: Vector3, axis: Vector3) => {
+    const length = m(getMemberLength(member));
+    if (length > 0) lines.push({ start, end: { x: start.x + axis.x * length, y: start.y + axis.y * length, z: start.z + axis.z * length } });
+  };
+  const right = { x: 1, y: 0, z: 0 };
+
+  switch (config.kind) {
+    case 'GOALPOST':
+    case 'BACKDROP':
+    case 'BOX':
+      add(config.beam, { x: leftX + coupler / 2, y: topY, z: 0 }, right);
+      if (config.kind === 'BOX') add(config.bottomBeam, { x: leftX + coupler / 2, y: 0.04 + coupler / 2, z: 0 }, right);
+      if (config.kind === 'BACKDROP') {
+        add(config.depthMember, { x: leftX, y: topY, z: 0 }, { x: 0, y: 0, z: -1 });
+        add(config.depthMember, { x: rightX, y: topY, z: 0 }, { x: 0, y: 0, z: -1 });
+      }
+      break;
+    case 'LSHAPE':
+      add(config.beam, { x: leftX + coupler / 2, y: attachY, z: 0 }, right);
+      break;
+    case 'TSHAPE': {
+      const columnX = leftX + m(getMemberLength(config.beam));
+      add(config.beam, { x: columnX - coupler / 2, y: attachY, z: 0 }, { x: -1, y: 0, z: 0 });
+      add(config.beamRight, { x: columnX + coupler / 2, y: attachY, z: 0 }, right);
+      break;
+    }
+    case 'MULTI_BAY': {
+      let x = -width / 2 + coupler;
+      for (const bay of splitMemberIntoBays(config.beam, getEffectiveBayCount(config))) {
+        add(bay, { x, y: topY, z: 0 }, right);
+        x += m(getMemberLength(bay)) + coupler;
+      }
+      break;
+    }
+    case 'CUSTOM': {
+      const members = config.members || [];
+      const bounds = getCustomBounds(members);
+      const centerX = (bounds.minXCm + bounds.maxXCm) / 2, centerZ = (bounds.minZCm + bounds.maxZCm) / 2;
+      for (const member of members) {
+        if (member.orientation === 'VERTICAL') continue;
+        const start = getCustomMemberStart(member);
+        add(
+          member,
+          { x: m(start.xCm - centerX), y: m(start.yCm - bounds.minYCm) + 0.04, z: -m(start.zCm - centerZ) },
+          member.orientation === 'DEPTH' ? { x: 0, y: 0, z: -1 } : { x: member.direction === -1 ? -1 : 1, y: 0, z: 0 },
+        );
+      }
+      break;
+    }
+  }
+  return lines;
+};

@@ -102,6 +102,8 @@ export type Voltage = '110V' | '220V';
 export type DeviceSystem = 'network' | 'doorplate' | 'wifi' | 'camera' | 'pos' | 'display' | 'access' | 'audio' | 'other';
 /** TABLE_NUMBER: a small tabletop stand or a floor-standing sign. */
 export type PlateStyle = 'table' | 'floor';
+/** Lights: standing on the floor (default), clamped on top of a truss beam, or hung upside down under it. */
+export type LightMount = 'floor' | 'upright' | 'inverted';
 
 export type TableCloth = 'linen' | 'satin' | 'velvet';
 
@@ -197,6 +199,8 @@ export interface BanquetObject {
   system?: DeviceSystem;
   /** TABLE_NUMBER: tabletop stand (default) or floor sign; the number shown is the object's label. */
   plateStyle?: PlateStyle;
+  /** Lights: floor stand (default) or clamped to a truss beam, upright on top or inverted underneath. */
+  mount?: LightMount;
 }
 
 /** Title block printed on the exported floor plan. Stored with the hall. */

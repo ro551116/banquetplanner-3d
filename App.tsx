@@ -1,9 +1,9 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import * as THREE from 'three';
-import { BanquetObject, DeviceSystem, ObjectType, PathPoint, TrussStructureConfig } from './types';
-import { createObjectConfig, INITIAL_HALL } from './constants';
+import { BanquetObject, DeviceSystem, LightMount, ObjectType, PathPoint, TrussStructureConfig } from './types';
+import { createObjectConfig, INITIAL_HALL, withLightMount } from './constants';
 import { cloneTrussConfig, getTrussDimensions } from './trussConfig';
-import { CLOSABLE_PATH_TYPES, DEVICE_SYSTEMS, findTableUnder, getTableTop, isOnTable, isPathType, MIN_OUTLINE_POINTS, nextDeviceCode, pathVertexLimits, withOutline } from './planning';
+import { CLOSABLE_PATH_TYPES, DEVICE_SYSTEMS, findTableUnder, getTableTop, getTrussBeams, isOnTable, isPathType, MIN_OUTLINE_POINTS, nextDeviceCode, pathVertexLimits, TRUSS_MOUNT_TYPES, trussMountPose, TrussMountPose, withOutline } from './planning';
 import { useObjects } from './hooks/useObjects';
 import { useDrawing } from './hooks/useDrawing';
 import { useSceneIO, captureThumbnail } from './hooks/useSceneIO';
@@ -64,6 +64,8 @@ export default function App() {
   const [drawingOutline, setDrawingOutline] = useState(false);
   /** System used for the next device point placed from the palette. */
   const [deviceSystem, setDeviceSystem] = useState<DeviceSystem>('network');
+  /** Mount used for the next light placed from the palette. */
+  const [lightMount, setLightMount] = useState<LightMount>('floor');
   const [isExiting, setIsExiting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
@@ -196,7 +198,7 @@ export default function App() {
     if (!docked) setPanelOpen(false);
     setSelectedIds(new Set());
     setEditTool('move');
-    const object = type === ObjectType.DEVICE_POINT ? createDevicePoint(deviceSystem, objects) : createObjectConfig(type);
+    const object = type === ObjectType.DEVICE_POINT ? createDevicePoint(deviceSystem, objects) : withLightMount(createObjectConfig(type), lightMount);
     if (type === ObjectType.COLUMN || type === ObjectType.WALL) object.customHeight = hall.height;
     setPendingPlacement([object]);
   };
@@ -214,11 +216,12 @@ export default function App() {
       return table && isOnTable(next, table) ? { ...next, label: table.label?.trim() ?? '' } : next;
     });
     setSelectedIds(handleBatchAddObjects(placed));
-    // Device points and plates are placed in runs (room after room, table after table): stay in placement.
+    // Device points, plates and truss lights are placed in runs (room after room, table after table, fixture after fixture).
     const [single] = placed;
     const again = placed.length !== 1 ? null
       : single.type === ObjectType.DEVICE_POINT ? createDevicePoint(single.system ?? 'other', [...objects, ...placed])
       : single.type === ObjectType.TABLE_NUMBER ? { ...createObjectConfig(ObjectType.TABLE_NUMBER), color: single.color, plateStyle: single.plateStyle }
+      : single.mount === 'upright' || single.mount === 'inverted' ? withLightMount({ ...createObjectConfig(single.type), color: single.color }, single.mount)
       : null;
     setPendingPlacement(again && [again]);
   };
@@ -242,6 +245,39 @@ export default function App() {
     setPendingPlacement(pending => pending && [createDevicePoint(system, objects)]);
   };
   const placingDevice = pendingPlacement?.length === 1 && pendingPlacement[0].type === ObjectType.DEVICE_POINT ? pendingPlacement[0] : null;
+  const changePendingLightMount = (mount: LightMount) => {
+    setLightMount(mount);
+    setPendingPlacement(pending => pending && pending.length === 1 ? [withLightMount(pending[0], mount)] : pending);
+  };
+  const placingLight = pendingPlacement?.length === 1 && TRUSS_MOUNT_TYPES[pendingPlacement[0].type] ? pendingPlacement[0] : null;
+  /**
+   * Re-mounts a placed light: back on the floor, or onto the nearest truss beam within 2 m horizontally (nearest in 3D
+   * wins, so a light under a box truss takes the bottom beam), keeping the side it faces.
+   */
+  const remountLight = (id: string, mount: LightMount) => {
+    const light = objects.find(object => object.id === id);
+    if (!light) return;
+    const next = withLightMount(light, mount);
+    if (mount === 'floor') {
+      updateObject(id, { mount: next.mount, rotation: next.rotation, position: { ...light.position, y: 0 } });
+      return;
+    }
+    const facing = { x: Math.sin(light.rotation.y), z: Math.cos(light.rotation.y) };
+    let best: TrussMountPose | null = null;
+    let bestRange = Infinity;
+    for (const beam of objects.flatMap(getTrussBeams)) {
+      const pose = trussMountPose(beam, light.position, mount, facing);
+      const { x, y, z } = pose.position;
+      if (Math.hypot(x - light.position.x, z - light.position.z) > 2) continue;
+      const range = Math.hypot(x - light.position.x, y - light.position.y, z - light.position.z);
+      if (range < bestRange) { bestRange = range; best = pose; }
+    }
+    if (!best) {
+      showNotice('2 公尺內沒有 truss 橫梁：先把燈移到 truss 旁，或從「新增」直接點在 truss 上', true);
+      return;
+    }
+    updateObject(id, { mount: next.mount, position: best.position, rotation: { ...next.rotation, y: best.rotationY } });
+  };
 
   // Path objects are drawn vertex by vertex; an existing id means "redraw" and keeps every other property.
   useEffect(() => setPathDraft([]), [pendingPlacement]);
@@ -589,7 +625,9 @@ export default function App() {
                 onCancel={cancelEditing} busy={isDragging}
                 path={pathDrawing ? { vertices: pathDraft.length, min: placingPath ? pathVertexLimits(placingPath.type).min : MIN_OUTLINE_POINTS, closed: drawingOutline, loop: !!placingPath && !!CLOSABLE_PATH_TYPES[placingPath.type], onFinish: pathDrawing.onFinish, onUndo: pathDrawing.onUndo } : undefined}
                 deviceSystem={placingDevice ? { value: placingDevice.system ?? 'other', onChange: changePendingDeviceSystem } : undefined}
-                placementHint={pendingPlacement?.[0]?.type === ObjectType.TABLE_NUMBER ? (pendingPlacement[0].plateStyle === 'floor' ? '點擊地面放置；連續放置，Esc 結束' : '點擊桌面放置，自動帶入桌號；連續放置，Esc 結束') : undefined}
+                lightMount={placingLight ? { value: placingLight.mount ?? 'floor', onChange: changePendingLightMount } : undefined}
+                placementHint={pendingPlacement?.[0]?.type === ObjectType.TABLE_NUMBER ? (pendingPlacement[0].plateStyle === 'floor' ? '點擊地面放置；連續放置，Esc 結束' : '點擊桌面放置，自動帶入桌號；連續放置，Esc 結束')
+                  : placingLight?.mount ? '點擊 truss 橫梁放置；連續放置，Esc 結束' : undefined}
                 onDuplicate={duplicateSelected} onDelete={deleteSelected}
               />
           )}
@@ -626,6 +664,7 @@ export default function App() {
             onEditTrussStructure={handleEditTrussStructure}
             onRedrawPath={handleRedrawPath}
             onAddTableNumbers={addTableNumbers}
+            onRemountLight={remountLight}
           />
         </Sidebar>
       </div>

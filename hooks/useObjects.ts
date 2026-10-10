@@ -3,7 +3,7 @@ import { BanquetObject, StairConfig } from '../types';
 import { INITIAL_OBJECTS } from '../constants';
 import { useHistory } from './useHistory';
 import { cloneTrussConfig } from '../trussConfig';
-import { attachedTableNumbers, carryTableNumbers } from '../planning';
+import { attachedObjects, carryAttachedObjects } from '../planning';
 
 function applyUpdates(object: BanquetObject, updates: Partial<BanquetObject>): BanquetObject {
   const unchanged = (Object.keys(updates) as Array<keyof BanquetObject>).every(key => {
@@ -30,15 +30,15 @@ function updateMatching(objects: BanquetObject[], matches: (object: BanquetObjec
 export function useObjects() {
   const { state: objects, set: setObjects, undo, redo, reset: resetObjects, canUndo, canRedo } = useHistory<BanquetObject[]>(INITIAL_OBJECTS);
 
-  // Table number plates follow their table through every move, rotation, deletion and duplication.
+  // Number plates and truss-mounted lights follow their host through every move, rotation, deletion and duplication.
   const updateObject = useCallback((id: string, updates: Partial<BanquetObject>, mergeKey?: string) => {
-    setObjects(prev => carryTableNumbers(prev, updateMatching(prev, obj => obj.id === id, updates)), { mergeKey });
+    setObjects(prev => carryAttachedObjects(prev, updateMatching(prev, obj => obj.id === id, updates)), { mergeKey });
   }, [setObjects]);
 
   const deleteObject = useCallback((id: string) => {
     setObjects(prev => {
       if (!prev.some(obj => obj.id === id)) return prev;
-      const removed = attachedTableNumbers(prev, new Set([id])).add(id);
+      const removed = attachedObjects(prev, new Set([id])).add(id);
       return prev.filter(obj => !removed.has(obj.id));
     });
   }, [setObjects]);
@@ -46,13 +46,13 @@ export function useObjects() {
   const deleteByIds = useCallback((ids: Set<string>) => {
     setObjects(prev => {
       if (!prev.some(obj => ids.has(obj.id))) return prev;
-      const removed = new Set([...ids, ...attachedTableNumbers(prev, ids)]);
+      const removed = new Set([...ids, ...attachedObjects(prev, ids)]);
       return prev.filter(obj => !removed.has(obj.id));
     });
   }, [setObjects]);
 
   const handleBatchUpdate = useCallback((updates: Record<string, Partial<BanquetObject>>) => {
-    setObjects(prev => carryTableNumbers(prev, prev.map(obj => updates[obj.id] ? { ...obj, ...updates[obj.id] } : obj)));
+    setObjects(prev => carryAttachedObjects(prev, prev.map(obj => updates[obj.id] ? { ...obj, ...updates[obj.id] } : obj)));
   }, [setObjects]);
 
   const handleBulkPropertyUpdate = useCallback((ids: Set<string>, updates: Partial<BanquetObject>, mergeKey?: string) => {
@@ -65,7 +65,7 @@ export function useObjects() {
   }, [setObjects]);
 
   const duplicateObjects = useCallback((ids: Set<string>) => {
-    const expanded = new Set([...ids, ...attachedTableNumbers(objects, ids)]);
+    const expanded = new Set([...ids, ...attachedObjects(objects, ids)]);
     const toDuplicate = objects.filter(o => expanded.has(o.id));
     if (toDuplicate.length === 0) return [];
     const newObjs = toDuplicate.map(obj => ({

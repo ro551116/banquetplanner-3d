@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createObjectConfig, INITIAL_HALL } from './constants';
 import {
-  attachedTableNumbers, carryTableNumbers, getHallOutline, getOutlineBounds, getPartitionSegments, getSeating, getWallSegments,
-  isSimplePolygon, nextDeviceCode, outlineTemplate, snapToWall, summarizeSeating, withOutline,
+  attachedObjects, carryAttachedObjects, getHallOutline, getOutlineBounds, getPartitionSegments, getSeating, getTrussBeams,
+  getWallSegments, isMountedOn, isSimplePolygon, nextDeviceCode, outlineTemplate, snapToWall, summarizeSeating, trussMountPose,
+  withOutline,
 } from './planning';
-import { BanquetObject, ObjectType } from './types';
+import { BanquetObject, ObjectType, Vector3 } from './types';
 
 const table = (type: ObjectType, extra: Partial<BanquetObject> = {}): BanquetObject => ({ ...createObjectConfig(type), ...extra });
 
@@ -92,11 +93,11 @@ test('a number plate travels with the table it stands on, and only that one', ()
   const onFloor: BanquetObject = { ...createObjectConfig(ObjectType.TABLE_NUMBER, { x: 2.3, y: 0, z: 3 }), id: 'floor-sign' };
   const elsewhere: BanquetObject = { ...createObjectConfig(ObjectType.TABLE_NUMBER, { x: 9, y: 0.75, z: 9 }), id: 'other' };
   const before = [table, onTable, onFloor, elsewhere];
-  assert.deepEqual([...attachedTableNumbers(before, new Set(['table']))], ['plate']);
+  assert.deepEqual([...attachedObjects(before, new Set(['table']))], ['plate']);
 
   // Move the table by (+1, 0, -1) and turn it 90°: the plate keeps its offset in the table's frame.
   const moved = before.map(object => object.id === 'table' ? { ...object, position: { x: 3, y: 0, z: 2 }, rotation: { x: 0, y: Math.PI / 2, z: 0 } } : object);
-  const after = carryTableNumbers(before, moved);
+  const after = carryAttachedObjects(before, moved);
   const plate = after.find(object => object.id === 'plate')!;
   assert.ok(Math.abs(plate.position.x - 3) < 1e-9 && Math.abs(plate.position.z - 1.7) < 1e-9 && plate.position.y === 0.75, JSON.stringify(plate.position));
   assert.ok(Math.abs(plate.rotation.y - Math.PI / 2) < 1e-9);
@@ -105,7 +106,41 @@ test('a number plate travels with the table it stands on, and only that one', ()
 
   // A plate the same update already moved (dragged along) is not moved twice; no table change → same array.
   const dragged = moved.map(object => object.id === 'plate' ? { ...object, position: { x: 3, y: 0.75, z: 2 } } : object);
-  assert.deepEqual(carryTableNumbers(before, dragged).find(object => object.id === 'plate')!.position, { x: 3, y: 0.75, z: 2 });
+  assert.deepEqual(carryAttachedObjects(before, dragged).find(object => object.id === 'plate')!.position, { x: 3, y: 0.75, z: 2 });
   const recoloured = before.map(object => object.id === 'table' ? { ...object, color: '#000000' } : object);
-  assert.equal(carryTableNumbers(before, recoloured), recoloured);
+  assert.equal(carryAttachedObjects(before, recoloured), recoloured);
+});
+
+const assertNear = (actual: Vector3, expected: Vector3) =>
+  assert.ok(Math.hypot(actual.x - expected.x, actual.y - expected.y, actual.z - expected.z) < 1e-9, JSON.stringify(actual));
+
+test('lights clamp under or on top of a truss beam and travel with the truss', () => {
+  const truss: BanquetObject = { ...createObjectConfig(ObjectType.TRUSS_STRAIGHT, { x: 0, y: 3, z: 0 }), id: 'truss', customWidth: 4 };
+  const [beam] = getTrussBeams(truss);
+  // Hung under the bottom face at the beam point nearest the pointer, front turned to the side it faces (-z).
+  const hung = trussMountPose(beam, { x: 1, z: 0.4 }, 'inverted', { x: 0, z: -1 });
+  assertNear(hung.position, { x: 1, y: 3, z: 0 });
+  assert.ok(Math.abs(Math.abs(hung.rotationY) - Math.PI) < 1e-9);
+  // Standing on the top face; a pointer past the end clamps to the beam's end.
+  const standing = trussMountPose(beam, { x: 9, z: 0 }, 'upright', { x: 0, z: 1 });
+  assertNear(standing.position, { x: 2, y: 3.3, z: 0 });
+  assert.ok(Math.abs(standing.rotationY) < 1e-9);
+
+  const par: BanquetObject = { ...createObjectConfig(ObjectType.LIGHT_PAR, hung.position), id: 'par', mount: 'inverted', rotation: { x: 0.3, y: hung.rotationY, z: 0 } };
+  const mover: BanquetObject = { ...createObjectConfig(ObjectType.LIGHT_MOVING, standing.position), id: 'mover', mount: 'upright' };
+  const loose: BanquetObject = { ...createObjectConfig(ObjectType.LIGHT_PAR, hung.position), id: 'loose' }; // same spot, floor mount
+  const upsideDownOnTop: BanquetObject = { ...mover, id: 'wrong-side', mount: 'inverted' };
+  const before = [truss, par, mover, loose, upsideDownOnTop];
+  assert.deepEqual([...attachedObjects(before, new Set(['truss']))], ['par', 'mover']);
+
+  // Raise the truss 1 m, move it 2 m back and turn it 90°: clamped lights keep their place on the beam and their tilt.
+  const moved = before.map(object => object.id === 'truss' ? { ...object, position: { x: 0, y: 4, z: 2 }, rotation: { x: 0, y: Math.PI / 2, z: 0 } } : object);
+  const after = carryAttachedObjects(before, moved);
+  const parAfter = after.find(object => object.id === 'par')!;
+  assertNear(parAfter.position, { x: 0, y: 4, z: 1 });
+  assert.equal(parAfter.rotation.x, 0.3);
+  assert.ok(Math.abs(parAfter.rotation.y - (hung.rotationY + Math.PI / 2)) < 1e-9);
+  assert.ok(isMountedOn(parAfter, after.find(object => object.id === 'truss')!));
+  assert.equal(after.find(object => object.id === 'loose'), loose);
+  assert.equal(after.find(object => object.id === 'wrong-side'), upsideDownOnTop);
 });

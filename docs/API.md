@@ -300,10 +300,13 @@ interface SceneData {
 | `points` | 路徑物件（`CABLE_RUN`、`FLOW_ARROW`、`DIMENSION`、`WALL`）節點 `[{ x, z }]`，公尺，相對於 `position`；`DIMENSION` 取第一點與最後一點；`WALL` 最後一點等於第一點時為封閉牆圈 |
 | `system` | 設備點位系統：`network` 網路點、`doorplate` 電子門牌、`wifi` 無線 AP、`camera` 監控攝影機、`pos` 公區／POS、`display` 螢幕／端景電視、`access` 門禁、`audio` 音訊點、`other` 其他（預設） |
 | `plateStyle` | 桌號牌款式：`table` 桌上立牌（預設）、`floor` 落地立牌 |
+| `mount` | 燈具安裝方式（`LIGHT_PAR`、`LIGHT_MOVING`、`LIGHT_WASH`、`LIGHT_STROBE`、`LIGHT`）：`floor` 落地（預設）、`upright` 正掛在 truss 橫梁上、`inverted` 倒吊在 truss 橫梁下 |
 
 `WALL` 以 `customWidth` 為厚度（預設 0.12 m）、`customHeight` 為牆高。`DEVICE_POINT` 的編號存在 `label`（例如 `AP-07`），`position.y` 可作安裝高度；從介面放置時編號依該系統現有編號的前綴自動遞增。
 
 `TABLE_NUMBER` 的牌面文字是 `label`。桌上立牌的 `position.y` 等於桌面高度（圓桌／長桌 0.75 m、雞尾酒桌 1.1 m，加上桌子本身的 `position.y`）且位置落在桌面範圍內時，視為放在該桌上：編輯器移動、旋轉、複製或刪除桌子時會一起處理，平面圖不另畫牌子。
+
+`mount` 為 `upright`／`inverted` 的燈具，`position` 是夾具與 truss 接觸的點：橫梁中心線（box truss 斷面 0.3 m）往上 0.15 m（正掛）或往下 0.15 m（倒吊）。位置落在 `TRUSS_STRAIGHT` 或 `TRUSS_STRUCTURE` 某根水平橫梁的這條線上（誤差 5 cm 內）時，視為掛在該 truss 上：編輯器移動、旋轉、複製或刪除 truss 時會一起處理。倒吊燈具的 `rotation.x` 照燈體本身的方向解讀，所以同一個值在倒吊時光束上下相反。
 
 桌數統計只算座位數大於 0 且非備桌的圓桌 / 長桌，所以無椅長桌（控台、candy bar、收禮桌）不計入。載入時，型別不符的上述選填欄位會被移除，`points` 只保留 `x`、`z` 皆為有限數字的節點。
 

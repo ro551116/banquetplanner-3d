@@ -27,7 +27,7 @@ No linter or formatter is configured.
 
 All state lives in `App.tsx` and is passed down as props. No Redux or Context API. Four custom hooks encapsulate domain logic:
 
-- **`useObjects`** — Object CRUD, batch operations, duplicate, stair management. Wraps `useHistory` for undo/redo (50-state limit). Updates that change nothing return the previous array (no empty undo steps). Table number plates standing on a table follow it: moves/rotations go through `carryTableNumbers`, deletes and duplicates include `attachedTableNumbers` (DirectManipulation also drags them live).
+- **`useObjects`** — Object CRUD, batch operations, duplicate, stair management. Wraps `useHistory` for undo/redo (50-state limit). Updates that change nothing return the previous array (no empty undo steps). Attached objects follow their host — number plates standing on a table, lights clamped to a truss beam (`planning.ts`: `isOnTable`, `isMountedOn`, `getTrussBeams` built on `trussConfig.ts` `getTrussBeamLines`): moves/rotations go through `carryAttachedObjects`, deletes and duplicates include `attachedObjects` (DirectManipulation also drags them live).
 - **`useHistory`** — Undo/redo reducer. `set(value, { mergeKey })` coalesces consecutive same-key edits within 1 s (sliders, colour pickers) into one undo step.
 - **`useSceneIO`** — Load (through `normalizeSceneData`), serial versioned autosave (2 s debounce, `baseUpdatedAt` → 409 conflict dialog), automatic retry with backoff, unload guard while anything is unsaved, JSON import/export, thumbnails.
 - **`useDrawing`** — Drawing mode toggle, path creation/clearing.

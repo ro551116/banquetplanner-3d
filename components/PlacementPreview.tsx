@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { BanquetObject, HallConfig, ObjectType } from '../types';
-import { getHallOutline, getPartitionSegments, getTableTop, getWallSegments, snapToWall } from '../planning';
+import { getHallBounds, getHallOutline, getPartitionSegments, getTableTop, getTrussBeams, getWallSegments, snapToWall, TRUSS_MOUNT_TYPES, trussMountPose } from '../planning';
 import { BanquetObjectModel } from './BanquetObjects';
 import { RenderSettingsContext } from './RenderSettings';
 
@@ -18,6 +18,8 @@ interface PlacementPreviewProps {
 
 const NO_RAYCAST = () => {};
 const PREVIEW_SETTINGS = { showLabels: false, night: false };
+/** How close (m) the pointer ray must pass a truss beam for a light to clamp onto it. */
+const TRUSS_REACH = 0.6;
 
 export function PlacementPreview({ pending, objects, hall, snapStep, onPlace, onCancel }: PlacementPreviewProps) {
   const root = useRef<THREE.Group>(null);
@@ -82,6 +84,20 @@ export function PlacementPreview({ pending, objects, hall, snapStep, onPlace, on
     });
   }, [pending, objects]);
 
+  // A light set to stand on or hang from a truss clamps to the beam the pointer ray passes closest to and faces
+  // into the hall (towards its centre); with no beam in reach there is nothing to place it on.
+  const trussMount = useMemo(() => {
+    const [object] = pending;
+    if (pending.length !== 1 || !TRUSS_MOUNT_TYPES[object.type] || (object.mount !== 'upright' && object.mount !== 'inverted')) return null;
+    const beams = objects.flatMap(getTrussBeams).map(beam => ({
+      beam,
+      start: new THREE.Vector3(beam.start.x, beam.start.y, beam.start.z),
+      end: new THREE.Vector3(beam.end.x, beam.end.y, beam.end.z),
+    }));
+    const { centerX, centerZ } = getHallBounds(hall);
+    return { mount: object.mount, beams, centerX, centerZ };
+  }, [pending, objects, hall]);
+
   useEffect(() => {
     const canvas = gl.domElement;
     const orbit = controls as unknown as { enabled: boolean } | null;
@@ -92,6 +108,7 @@ export function PlacementPreview({ pending, objects, hall, snapStep, onPlace, on
     const candidate = new THREE.Vector3();
     const local = new THREE.Vector3();
     const position = new THREE.Vector3();
+    const facing = new THREE.Vector3();
     let gesture: { id: number; enabled: boolean } | null = null;
     let snappedRotation: number | undefined;
     const previousCursor = canvas.style.cursor;
@@ -140,6 +157,25 @@ export function PlacementPreview({ pending, objects, hall, snapStep, onPlace, on
         nearestTop = range;
         position.set(object.position.x, object.position.y + top.height, object.position.z);
         snappedRotation = object.rotation.y;
+      }
+      if (trussMount) {
+        let best = TRUSS_REACH * TRUSS_REACH;
+        let hit: (typeof trussMount.beams)[number] | null = null;
+        for (const entry of trussMount.beams) {
+          const range = raycaster.ray.distanceSqToSegment(entry.start, entry.end, undefined, candidate);
+          if (range < best) { best = range; hit = entry; local.copy(candidate); }
+        }
+        if (!hit) return false;
+        // Step along the beam from its start so a row of fixtures lands evenly spaced.
+        const length = hit.start.distanceTo(hit.end);
+        if (snapStep > 0 && length > 0) local.lerpVectors(hit.start, hit.end, Math.min(length, Math.round(local.distanceTo(hit.start) / snapStep) * snapStep) / length);
+        facing.set(trussMount.centerX - local.x, 0, trussMount.centerZ - local.z);
+        // A beam passing within 0.5 m of the centre has no inward side: face the way the camera looks.
+        const across = (facing.x * (hit.end.z - hit.start.z) - facing.z * (hit.end.x - hit.start.x)) / Math.max(length, 1e-6);
+        if (Math.abs(across) < 0.5) camera.getWorldDirection(facing);
+        const pose = trussMountPose(hit.beam, local, trussMount.mount, facing);
+        position.set(pose.position.x, pose.position.y, pose.position.z);
+        snappedRotation = pose.rotationY;
       }
       if (root.current) {
         root.current.visible = true;
@@ -207,7 +243,7 @@ export function PlacementPreview({ pending, objects, hall, snapStep, onPlace, on
       release();
       canvas.style.cursor = previousCursor;
     };
-  }, [gl, camera, controls, surfaces, snapStep, wallSnap, tableTops, invalidate]);
+  }, [gl, camera, controls, surfaces, snapStep, wallSnap, tableTops, trussMount, invalidate]);
 
   return (
     <group ref={root} visible={false} userData={{ placementPreview: true }}>

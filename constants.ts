@@ -1,6 +1,6 @@
-import { BanquetObject, ObjectType, HallConfig, TableCloth } from './types';
+import { BanquetObject, ObjectType, HallConfig, LightMount, TableCloth } from './types';
 import { createDefaultTrussConfig } from './trussConfig';
-import { DEVICE_SYSTEMS, PARTITION_THICKNESS } from './planning';
+import { DEVICE_SYSTEMS, PARTITION_THICKNESS, TRUSS_MOUNT_TYPES } from './planning';
 
 export const INITIAL_HALL: HallConfig = {
   width: 15,
@@ -212,4 +212,18 @@ export const createObjectConfig = (
     trussSchematicColors: type === ObjectType.TRUSS_STRUCTURE ? false : undefined,
     ...TYPE_DEFAULTS[type],
   };
+};
+
+/**
+ * The light with another mount (floor clears the field). Turning a fixture upside down aims its head down; turning
+ * it back restores the type's default tilt. Other types are returned unchanged.
+ */
+export const withLightMount = (object: BanquetObject, mount: LightMount): BanquetObject => {
+  const spec = TRUSS_MOUNT_TYPES[object.type];
+  if (!spec) return object;
+  const wasInverted = object.mount === 'inverted';
+  const tilt = mount === 'inverted'
+    ? (wasInverted ? object.rotation.x : spec.hungTilt)
+    : (wasInverted ? createObjectConfig(object.type).rotation.x : object.rotation.x);
+  return { ...object, mount: mount === 'floor' ? undefined : mount, rotation: { ...object.rotation, x: tilt } };
 };

@@ -3,7 +3,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import { RenderSettingsContext } from '../RenderSettings';
-import { ObjectType } from '../../types';
+import { LightMount, ObjectType } from '../../types';
+import { TRUSS_MOUNT_TYPES } from '../../planning';
+import { TRUSS_CROSS_SECTION } from '../../trussConfig';
 import { Highlight, LightSource, PlateBase, TripodBase } from './shared';
 import { SoftBox, GrilleMaterial } from './details';
 
@@ -462,6 +464,34 @@ const MovingHead = ({
   );
 };
 
+/** Bar spanning the two chords on a box truss face, gripped by a half-coupler on each; the fixture bolts to the bar. */
+const CLAMP_BAR_HEIGHT = 0.024;
+const CHORD_OFFSET = TRUSS_CROSS_SECTION / 2 - 0.025;
+const clampMetal = new THREE.MeshStandardMaterial({ color: '#9a9ca4', metalness: 0.85, roughness: 0.28 });
+const clampDark = new THREE.MeshStandardMaterial({ color: '#2a2a30', metalness: 0.6, roughness: 0.4 });
+
+const TrussClamp = () => (
+  <group>
+    <mesh position={[0, CLAMP_BAR_HEIGHT / 2, 0]} material={clampDark} castShadow>
+      <boxGeometry args={[0.07, CLAMP_BAR_HEIGHT, CHORD_OFFSET * 2 + 0.07]} />
+    </mesh>
+    {[-1, 1].map((side) => (
+      <group key={side} position={[0, -0.025, side * CHORD_OFFSET]}>
+        {/* Ring around the chord tube, which runs along the fixture's x axis. */}
+        <mesh rotation={[0, Math.PI / 2, 0]} material={clampMetal} castShadow>
+          <torusGeometry args={[0.031, 0.008, 8, 20]} />
+        </mesh>
+        <mesh position={[0, 0.034, 0]} material={clampMetal}>
+          <boxGeometry args={[0.03, 0.022, 0.034]} />
+        </mesh>
+        <mesh position={[0, -0.028, side * 0.03]} rotation={[side * 0.6, 0, 0]} material={clampDark}>
+          <cylinderGeometry args={[0.008, 0.008, 0.05, 8]} />
+        </mesh>
+      </group>
+    ))}
+  </group>
+);
+
 export const Lighting = ({
   type,
   color,
@@ -470,6 +500,7 @@ export const Lighting = ({
   selected,
   isEditMode,
   standType,
+  mount,
 }: {
   type: ObjectType;
   color: string;
@@ -478,12 +509,16 @@ export const Lighting = ({
   selected?: boolean;
   isEditMode?: boolean;
   standType?: string;
+  mount?: LightMount;
 }) => {
   const bodyColor = '#202026';
   const isPar = type === ObjectType.LIGHT_PAR || type === ObjectType.LIGHT;
+  // On a truss the object sits on the beam's top face (upright) or under its bottom face (inverted, the whole
+  // fixture turned over about its front axis); the fixture stands on the clamp bar instead of the floor.
+  const mounted = TRUSS_MOUNT_TYPES[type] && (mount === 'upright' || mount === 'inverted');
 
-  return (
-    <group>
+  const fixture = (
+    <group position={[0, mounted ? CLAMP_BAR_HEIGHT : 0, 0]}>
       {/* Tour-grade LED Par Can (or legacy LIGHT counterpart) */}
       {isPar && (
         <LedPar
@@ -893,6 +928,13 @@ export const Lighting = ({
           </group>
         </group>
       )}
+    </group>
+  );
+  if (!mounted) return fixture;
+  return (
+    <group rotation={[0, 0, mount === 'inverted' ? Math.PI : 0]}>
+      <TrussClamp />
+      {fixture}
     </group>
   );
 };
