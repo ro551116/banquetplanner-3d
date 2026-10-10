@@ -1,22 +1,25 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { BanquetObject, ObjectType } from '../types';
+import { BanquetObject, HallConfig, ObjectType } from '../types';
+import { getHallOutline, getPartitionSegments, getTableTop, getWallSegments, snapToWall } from '../planning';
 import { BanquetObjectModel } from './BanquetObjects';
 import { RenderSettingsContext } from './RenderSettings';
 
 interface PlacementPreviewProps {
   pending: BanquetObject[];
   objects: BanquetObject[];
+  hall: HallConfig;
   snapStep: number;
-  onPlace: (position: { x: number; y: number; z: number }) => void;
+  /** `rotationY` is set when the object snapped onto a wall and must face into the room. */
+  onPlace: (position: { x: number; y: number; z: number }, rotationY?: number) => void;
   onCancel: () => void;
 }
 
 const NO_RAYCAST = () => {};
 const PREVIEW_SETTINGS = { showLabels: false, night: false };
 
-export function PlacementPreview({ pending, objects, snapStep, onPlace, onCancel }: PlacementPreviewProps) {
+export function PlacementPreview({ pending, objects, hall, snapStep, onPlace, onCancel }: PlacementPreviewProps) {
   const root = useRef<THREE.Group>(null);
   const { camera, gl, controls, invalidate } = useThree();
   const callbacks = useRef({ onPlace, onCancel });
@@ -62,6 +65,23 @@ export function PlacementPreview({ pending, objects, snapStep, onPlace, onCancel
     };
   }, [pending, invalidate]);
 
+  // A single door or column snaps onto the nearest wall (hall outline or partition); a column's depth keeps it flush.
+  const wallSnap = useMemo(() => {
+    if (pending.length !== 1) return null;
+    const [object] = pending;
+    const depth = object.type === ObjectType.COLUMN ? (object.shape === 'round' ? object.customWidth : object.customDepth) ?? 0.6 : 0;
+    return { type: object.type, depth, walls: [...getWallSegments(getHallOutline(hall)), ...getPartitionSegments(objects)] };
+  }, [pending, hall.outline, hall.width, hall.length, objects]);
+
+  // A tabletop number plate lands on the centre of the table under the pointer, turned with the table.
+  const tableTops = useMemo(() => {
+    if (pending.length !== 1 || pending[0].type !== ObjectType.TABLE_NUMBER || pending[0].plateStyle === 'floor') return [];
+    return objects.flatMap(object => {
+      const top = getTableTop(object);
+      return top ? [{ object, top, plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -(object.position.y + top.height)) }] : [];
+    });
+  }, [pending, objects]);
+
   useEffect(() => {
     const canvas = gl.domElement;
     const orbit = controls as unknown as { enabled: boolean } | null;
@@ -73,6 +93,7 @@ export function PlacementPreview({ pending, objects, snapStep, onPlace, onCancel
     const local = new THREE.Vector3();
     const position = new THREE.Vector3();
     let gesture: { id: number; enabled: boolean } | null = null;
+    let snappedRotation: number | undefined;
     const previousCursor = canvas.style.cursor;
     canvas.style.cursor = 'crosshair';
 
@@ -95,6 +116,13 @@ export function PlacementPreview({ pending, objects, snapStep, onPlace, onCancel
         position.x = Math.round(position.x / snapStep) * snapStep;
         position.z = Math.round(position.z / snapStep) * snapStep;
       }
+      snappedRotation = undefined;
+      const snapped = wallSnap && snapToWall(wallSnap.type, position, wallSnap.walls, wallSnap.depth);
+      if (snapped) {
+        position.x = snapped.x;
+        position.z = snapped.z;
+        snappedRotation = snapped.rotationY;
+      }
       // Re-evaluate elevation after snapping, including rotated/raised stages.
       position.y = 0;
       for (const surface of surfaces) {
@@ -104,9 +132,19 @@ export function PlacementPreview({ pending, objects, snapStep, onPlace, onCancel
         local.set(position.x, y, position.z).applyMatrix4(surface.inverse);
         if (Math.abs(local.x) <= surface.width / 2 && Math.abs(local.z) <= surface.depth / 2) position.y = Math.max(position.y, y);
       }
+      let nearestTop = Infinity;
+      for (const { object, top, plane } of tableTops) {
+        if (!raycaster.ray.intersectPlane(plane, candidate) || !top.contains(candidate)) continue;
+        const range = raycaster.ray.origin.distanceToSquared(candidate);
+        if (range >= nearestTop) continue;
+        nearestTop = range;
+        position.set(object.position.x, object.position.y + top.height, object.position.z);
+        snappedRotation = object.rotation.y;
+      }
       if (root.current) {
         root.current.visible = true;
         root.current.position.copy(position);
+        root.current.rotation.y = snappedRotation ?? 0;
         invalidate();
       }
       return true;
@@ -141,7 +179,7 @@ export function PlacementPreview({ pending, objects, snapStep, onPlace, onCancel
       event.preventDefault();
       const valid = locate(event);
       release();
-      if (valid) callbacks.current.onPlace({ x: position.x, y: position.y, z: position.z });
+      if (valid) callbacks.current.onPlace({ x: position.x, y: position.y, z: position.z }, snappedRotation);
     };
     const cancel = () => { release(); callbacks.current.onCancel(); };
     const lost = () => { if (gesture) cancel(); };
@@ -169,7 +207,7 @@ export function PlacementPreview({ pending, objects, snapStep, onPlace, onCancel
       release();
       canvas.style.cursor = previousCursor;
     };
-  }, [gl, camera, controls, surfaces, snapStep, invalidate]);
+  }, [gl, camera, controls, surfaces, snapStep, wallSnap, tableTops, invalidate]);
 
   return (
     <group ref={root} visible={false} userData={{ placementPreview: true }}>

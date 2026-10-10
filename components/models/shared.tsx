@@ -1,4 +1,4 @@
-import React, { useMemo, useContext, useLayoutEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useContext, useLayoutEffect, useRef } from 'react';
 import { Html } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -8,7 +8,11 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createTubeGeometry } from './details';
 
-export const Highlight = ({ color = "#3b82f6" }: { color?: string }) => {
+/**
+ * Selection outline of the parent mesh. The 2% enlargement is about the mesh origin, so meshes whose
+ * origin is not their centre (path objects anchored at their first vertex) pass `scale={1}`.
+ */
+export const Highlight = ({ color = "#3b82f6", scale = 1.02 }: { color?: string; scale?: number }) => {
   const invalidate = useThree(state => state.invalidate);
   const ref = useRef<THREE.LineSegments>(null);
   const resource = useRef<{ source: THREE.BufferGeometry; edges: THREE.EdgesGeometry } | null>(null);
@@ -27,26 +31,61 @@ export const Highlight = ({ color = "#3b82f6" }: { color?: string }) => {
     resource.current = null;
   }, []);
   return (
-    <lineSegments ref={ref} scale={1.02} raycast={() => null}>
+    <lineSegments ref={ref} scale={scale} raycast={() => null}>
       <lineBasicMaterial color={color} />
     </lineSegments>
   );
 };
 
-export const Label = ({ text }: { text: string }) => {
+export const Label = ({ text, note, height = 2 }: { text?: string; note?: string; height?: number }) => {
   const { showLabels } = useContext(RenderSettingsContext);
-  if (!showLabels) return null;
+  if (!showLabels || !(text || note)) return null;
 
   // Fixed screen size: distance-scaled labels shrank to ~6px in overview framing.
   // zIndex stays below the toolbar/menus (z-20) and sheets so labels never cover UI.
   return (
-    <Html position={[0, 2, 0]} center zIndexRange={[15, 0]} style={{ pointerEvents: 'none' }}>
-      <div className="whitespace-nowrap rounded-md bg-slate-900/85 px-2 py-0.5 text-xs font-medium text-white shadow-sm ring-1 ring-white/10">
+    <Html position={[0, height, 0]} center zIndexRange={[15, 0]} style={{ pointerEvents: 'none' }}>
+      <div className="whitespace-nowrap rounded-md bg-slate-900/85 px-2 py-0.5 text-center text-xs font-medium text-white shadow-sm ring-1 ring-white/10">
         {text}
+        {note && <div className="text-[11px] font-normal text-amber-200">{note}</div>}
       </div>
     </Html>
   );
 };
+
+const TEXT_FONT_FAMILY = 'system-ui, -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+
+/**
+ * Text drawn on a canvas texture: signage on 3D models without font downloads.
+ * Lines split on "\n" and shrink to fit; the texture is disposed when inputs change or on unmount.
+ */
+export function useTextTexture(text: string, { width = 256, height = 128, background = '#ffffff', color = '#1f2937', fontSize = 64, fontWeight = 600 }: {
+  width?: number; height?: number; background?: string; color?: string; fontSize?: number; fontWeight?: number;
+} = {}) {
+  const texture = useMemo(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d')!;
+    context.fillStyle = background;
+    context.fillRect(0, 0, width, height);
+    const lines = text.split('\n');
+    context.font = `${fontWeight} ${fontSize}px ${TEXT_FONT_FAMILY}`;
+    const widest = Math.max(1, ...lines.map(line => context.measureText(line).width));
+    const size = Math.min(fontSize, fontSize * width * 0.88 / widest, height * 0.84 / (lines.length * 1.18));
+    context.font = `${fontWeight} ${size}px ${TEXT_FONT_FAMILY}`;
+    context.fillStyle = color;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    lines.forEach((line, index) => context.fillText(line, width / 2, height / 2 + (index - (lines.length - 1) / 2) * size * 1.18));
+    const result = new THREE.CanvasTexture(canvas);
+    result.colorSpace = THREE.SRGBColorSpace;
+    result.anisotropy = 4;
+    return result;
+  }, [text, width, height, background, color, fontSize, fontWeight]);
+  useEffect(() => () => texture.dispose(), [texture]);
+  return texture;
+}
 
 export const LightSource = ({ color, intensity }: { color: string, intensity: number }) => {
   const { night } = useContext(RenderSettingsContext);
@@ -78,7 +117,8 @@ export const LightSource = ({ color, intensity }: { color: string, intensity: nu
   );
 };
 
-function mergeParts(parts: THREE.BufferGeometry[]) {
+/** Merges caller-owned parts into one geometry and disposes the inputs. */
+export function mergeParts(parts: THREE.BufferGeometry[]) {
   const mixedIndices = parts.some(part => !!part.index !== !!parts[0].index);
   const normalized = mixedIndices ? parts.map(part => part.index ? part.toNonIndexed() : part) : parts;
   const geometry = mergeGeometries(normalized)!;
@@ -87,8 +127,8 @@ function mergeParts(parts: THREE.BufferGeometry[]) {
   return geometry;
 }
 
-const standMetal = new THREE.MeshStandardMaterial({ color: '#535b61', metalness: 0.8, roughness: 0.28 });
-const standRubber = new THREE.MeshStandardMaterial({ color: '#181c20', metalness: 0.05, roughness: 0.8 });
+export const standMetal = new THREE.MeshStandardMaterial({ color: '#535b61', metalness: 0.8, roughness: 0.28 });
+export const standRubber = new THREE.MeshStandardMaterial({ color: '#181c20', metalness: 0.05, roughness: 0.8 });
 const tripodParts = (() => {
   const tubes = [
     createTubeGeometry([0, 0.035, 0], [0, 0.79, 0], 0.026, 20),
@@ -138,8 +178,11 @@ export const PlateBase = () => (
   </group>
 );
 
-// One upholstered banquet-chair model, instanced by each table in three draw calls.
-const chairParts = (() => {
+/**
+ * One upholstered banquet-chair model, instanced by each table in three draw calls.
+ * Shared geometry (never disposed). The seat faces local -Z; the back is at +Z.
+ */
+export const chairParts = (() => {
   const frame: THREE.BufferGeometry[] = [];
   const feet: THREE.BufferGeometry[] = [];
   for (const x of [-1, 1]) for (const z of [-1, 1]) {
@@ -179,8 +222,8 @@ const chairParts = (() => {
   const seat = new RoundedBoxGeometry(0.43, 0.07, 0.43, 2, 0.03).translate(0, 0.46, 0);
   return { frame: mergeParts(frame), upholstery: mergeParts([seat, back]), feet: mergeParts(feet) };
 })();
-const chairMetal = new THREE.MeshStandardMaterial({ color: '#bba16b', metalness: 0.78, roughness: 0.3 });
-const chairFabric = new THREE.MeshPhysicalMaterial({ color: '#eee8dc', roughness: 0.85, metalness: 0, sheen: 0.4, sheenRoughness: 0.65, sheenColor: '#ffffff' });
+export const chairMetal = new THREE.MeshStandardMaterial({ color: '#bba16b', metalness: 0.78, roughness: 0.3 });
+export const chairFabric = new THREE.MeshPhysicalMaterial({ color: '#eee8dc', roughness: 0.85, metalness: 0, sheen: 0.4, sheenRoughness: 0.65, sheenColor: '#ffffff' });
 
 export interface ChairPlacement {
   position: [number, number, number];

@@ -194,8 +194,8 @@ interface SceneData {
 
 | 欄位 | 說明 |
 | --- | --- |
-| `width` | 場地 X 軸寬度，公尺 |
-| `length` | 場地 Z 軸長度，公尺 |
+| `width` | 場地 X 軸寬度，公尺；有 `outline` 時為外框的外接矩形寬 |
+| `length` | 場地 Z 軸長度，公尺；有 `outline` 時為外框的外接矩形長 |
 | `height` | 場地 Y 軸高度，公尺 |
 | `wallColor` | 牆面色碼 |
 | `floorColor` | 地板色碼 |
@@ -204,6 +204,10 @@ interface SceneData {
 | `floorRoughness` | 地板 roughness，選填 |
 | `floorMetalness` | 地板 metalness，選填 |
 | `baseboard` | 踢腳板色碼，選填 |
+| `planInfo` | 平面圖標題欄 `{ title, venue, date, version, notes }`，皆為選填字串；`notes` 每行一則 |
+| `outline` | 不規則場地的牆角 `[{ x, z }]`（公尺，世界座標，依序相連、首尾自動封閉，3–64 點），選填；省略時為以原點為中心的 `width × length` 矩形 |
+
+有 `outline` 時，載入會把 `width`／`length` 設為外框的外接矩形尺寸；外框中心不必在原點。座標不是有限數字的牆角會被移除，剩不到 3 點則改回矩形。
 
 ### `ObjectType`
 
@@ -235,6 +239,26 @@ interface SceneData {
 | `TRUSS_STRUCTURE` | Truss 結構 |
 | `EQUIPMENT_MIXER` | 混音台 |
 | `EFFECTS_FOG` | 煙霧 / 薄霧機 |
+| `CHAIR` | 單椅（宴會椅 / 兒童椅） |
+| `DOOR` | 門（放置時吸附最近牆面） |
+| `COLUMN` | 柱子 |
+| `TABLE_NUMBER` | 桌號牌（牌面文字＝`label`） |
+| `CHAMPAGNE_TOWER` | 香檳塔 |
+| `EASEL` | 畫架 |
+| `KIOSK` | 設備機台（拍貼機、調酒機等） |
+| `GENERATOR` | 發電機 |
+| `POWER_DISTRO` | 配電箱 |
+| `POWER_OUTLET` | 電源點 |
+| `CABLE_RUN` | 電源線路（路徑） |
+| `CABLE_RAMP` | 過線橋 |
+| `SERVICE_STATION` | 備餐台 |
+| `BEVERAGE_CART` | 酒水車 |
+| `BAR_COUNTER` | 吧台 |
+| `ZONE` | 區域標記 |
+| `FLOW_ARROW` | 動線箭頭（路徑） |
+| `DIMENSION` | 尺寸標註（路徑，兩點） |
+| `DEVICE_POINT` | 設備點位（網路、AP、監控…，編號＝`label`） |
+| `WALL` | 隔間牆（路徑） |
 | `SPEAKER` | 喇叭（舊資料） |
 | `LIGHT` | 燈光（舊資料） |
 
@@ -261,6 +285,27 @@ interface SceneData {
 | `tableCloth` | `linen`、`satin`、`velvet` |
 | `trussStructure` | `TRUSS_STRUCTURE` 使用的 `TrussStructureConfig` |
 | `trussSchematicColors` | Truss 是否使用圖面色彩 |
+| `note` | 備註，顯示在標籤下方與平面圖備註欄 |
+| `seatCount` | 圓桌座位數（0-16）；省略時依尺寸：4 尺 5、5 尺 8、6/7 尺 10、8 尺 12 |
+| `chairLayout` | 長桌座椅：`both`（預設）、`front`（只有 +Z 側）、`none` |
+| `childSeats` | 圓桌 / 長桌中兒童椅數量，計入座位數 |
+| `vegetarianSeats` | 圓桌 / 長桌素食數量 |
+| `standby` | 備桌；不計入桌數與座位統計 |
+| `chairStyle` | 單椅款式：`banquet`（預設）、`child` |
+| `tiers` | 香檳塔層數 3-7（預設 5） |
+| `doorLeaves` | 門扇：`1` 單開、`2` 雙開（預設） |
+| `shape` | 柱子 / 區域標記外形：`rect`（預設）、`round` |
+| `voltage` | 電源點電壓：`110V`（預設）、`220V` |
+| `powerKva` | 發電機 / 配電箱容量，kVA |
+| `points` | 路徑物件（`CABLE_RUN`、`FLOW_ARROW`、`DIMENSION`、`WALL`）節點 `[{ x, z }]`，公尺，相對於 `position`；`DIMENSION` 取第一點與最後一點；`WALL` 最後一點等於第一點時為封閉牆圈 |
+| `system` | 設備點位系統：`network` 網路點、`doorplate` 電子門牌、`wifi` 無線 AP、`camera` 監控攝影機、`pos` 公區／POS、`display` 螢幕／端景電視、`access` 門禁、`audio` 音訊點、`other` 其他（預設） |
+| `plateStyle` | 桌號牌款式：`table` 桌上立牌（預設）、`floor` 落地立牌 |
+
+`WALL` 以 `customWidth` 為厚度（預設 0.12 m）、`customHeight` 為牆高。`DEVICE_POINT` 的編號存在 `label`（例如 `AP-07`），`position.y` 可作安裝高度；從介面放置時編號依該系統現有編號的前綴自動遞增。
+
+`TABLE_NUMBER` 的牌面文字是 `label`。桌上立牌的 `position.y` 等於桌面高度（圓桌／長桌 0.75 m、雞尾酒桌 1.1 m，加上桌子本身的 `position.y`）且位置落在桌面範圍內時，視為放在該桌上：編輯器移動、旋轉、複製或刪除桌子時會一起處理，平面圖不另畫牌子。
+
+桌數統計只算座位數大於 0 且非備桌的圓桌 / 長桌，所以無椅長桌（控台、candy bar、收禮桌）不計入。載入時，型別不符的上述選填欄位會被移除，`points` 只保留 `x`、`z` 皆為有限數字的節點。
 
 ### `drawings`
 

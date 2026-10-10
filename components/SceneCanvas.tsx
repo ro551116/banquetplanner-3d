@@ -14,7 +14,9 @@ import { EffectComposer, N8AO, ToneMapping } from '@react-three/postprocessing';
 import { ToneMappingMode } from 'postprocessing';
 import { DirectManipulation } from './DirectManipulation';
 import { PlacementPreview } from './PlacementPreview';
+import { PathPlacement } from './PathPlacement';
 import { EditTool, EditorSession } from '../interaction';
+import { getHallBounds } from '../planning';
 
 
 interface SceneCanvasProps {
@@ -40,8 +42,10 @@ interface SceneCanvasProps {
   snapStep: number;
   sessionRef: React.MutableRefObject<EditorSession | null>;
   pendingPlacement: BanquetObject[] | null;
-  onPlace: (position: { x: number; y: number; z: number }) => void;
+  onPlace: (position: { x: number; y: number; z: number }, rotationY?: number) => void;
   onCancel: () => void;
+  /** Set while a path object (cable run, flow arrow, dimension) is being drawn instead of placed. */
+  pathDrawing: React.ComponentProps<typeof PathPlacement> | null;
   handleBatchUpdate: (updates: Record<string, Partial<BanquetObject>>) => void;
   objectRefs: React.MutableRefObject<Record<string, THREE.Group | null>>;
 }
@@ -51,12 +55,16 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
   viewIndex, viewRequest, viewEnvironment, showLabels, isDragging, setIsDragging,
   isDrawMode, drawingColor, drawings, currentPath,
   startPath, extendPath, finishPath,
-  tool, snapStep, sessionRef, pendingPlacement, onPlace, onCancel,
+  tool, snapStep, sessionRef, pendingPlacement, onPlace, onCancel, pathDrawing,
   handleBatchUpdate, objectRefs
 }) => {
   const night = mode === 'VIEW' && viewEnvironment === 'night';
   const renderSettings = useMemo(() => ({ night, showLabels: mode === 'EDIT' || showLabels }), [night, mode, showLabels]);
   const floorDown = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  // The grid covers the hall's bounding box but stays on whole-meter lines (5 m sections) so it matches snapping.
+  const bounds = getHallBounds(hall);
+  const gridX = Math.round(bounds.centerX / 5) * 5, gridZ = Math.round(bounds.centerZ / 5) * 5;
+  const gridWidth = bounds.width + 2 * Math.abs(bounds.centerX - gridX), gridLength = bounds.length + 2 * Math.abs(bounds.centerZ - gridZ);
 
   const handleFloorPointerDown = (e: ThreeEvent<PointerEvent>) => {
     floorDown.current = null;
@@ -125,11 +133,11 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
 
       {mode === 'EDIT' && (
         <Grid
-          position={[0, 0.008, 0]}
-          args={[hall.width, hall.length]}
+          position={[gridX, 0.008, gridZ]}
+          args={[gridWidth, gridLength]}
           cellSize={1} cellThickness={0.35} cellColor="#a8a29a"
           sectionSize={5} sectionThickness={0.6} sectionColor="#797c7c"
-          fadeDistance={Math.max(hall.width, hall.length) * 2}
+          fadeDistance={Math.max(gridWidth, gridLength) * 2}
         />
       )}
 
@@ -142,7 +150,7 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
 
       {/* Objects */}
       <DirectManipulation
-        enabled={mode === 'EDIT' && !isDrawMode && !pendingPlacement}
+        enabled={mode === 'EDIT' && !isDrawMode && !pendingPlacement && !pathDrawing}
         objects={objects} selectedIds={selectedIds} setSelectedIds={setSelectedIds}
         objectRefs={objectRefs} onCommit={handleBatchUpdate} onDraggingChange={setIsDragging}
         tool={tool} snapStep={snapStep} sessionRef={sessionRef}
@@ -151,8 +159,9 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
           <ObjectWrapper key={obj.id} obj={obj} isSelected={selectedIds.has(obj.id)} isEditMode={mode === 'EDIT'} objectRefs={objectRefs} />
         ))}
       </DirectManipulation>
-      {mode === 'EDIT' && pendingPlacement && (
-        <PlacementPreview pending={pendingPlacement} objects={objects} snapStep={snapStep} onPlace={onPlace} onCancel={onCancel} />
+      {mode === 'EDIT' && (pathDrawing
+        ? <PathPlacement {...pathDrawing} />
+        : pendingPlacement && <PlacementPreview pending={pendingPlacement} objects={objects} hall={hall} snapStep={snapStep} onPlace={onPlace} onCancel={onCancel} />
       )}
 
       {/* Drawings */}
@@ -165,7 +174,7 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
         </EffectComposer>
       )}
-      <OrbitControls makeDefault enabled={!isDrawMode && !isDragging} minDistance={0.5} maxDistance={Math.max(hall.width, hall.length, hall.height) * 8} maxPolarAngle={Math.PI / 2 - 0.015} enableDamping={mode === 'VIEW'} dampingFactor={0.12} />
+      <OrbitControls makeDefault enabled={!isDrawMode && !isDragging} minDistance={0.5} maxDistance={Math.max(bounds.width, bounds.length, hall.height) * 8} maxPolarAngle={Math.PI / 2 - 0.015} enableDamping={mode === 'VIEW'} dampingFactor={0.12} />
       </RenderSettingsContext.Provider>
     </Canvas>
   );

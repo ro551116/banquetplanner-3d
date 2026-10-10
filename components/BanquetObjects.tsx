@@ -1,50 +1,84 @@
 import React from 'react';
-import { ThreeEvent } from '@react-three/fiber';
-import { ObjectType, StairConfig, TableCloth, TrussStructureConfig } from '../types';
+import { ObjectType } from '../types';
 import {
+  BarCounter,
+  BeverageCart,
+  CableRamp,
+  CableRun,
+  ChairModel,
+  ChampagneTower,
+  Column,
+  Dimension,
+  Door,
+  Easel,
   Equipment,
+  DevicePoint,
+  FlowArrow,
+  Generator,
+  Kiosk,
   Label,
   Lighting,
+  PowerDistro,
+  PowerOutlet,
+  PartitionWall,
   RectTable,
   RedCarpet,
   RoundTable,
+  ServiceStation,
   Speaker,
   Stage,
+  TableNumber,
   TrussStructureModel,
   Venue,
+  Zone,
 } from './models';
+import type { ObjectModelProps } from './models/modelProps';
 
-interface BanquetModelProps {
-  type: ObjectType;
-  color: string;
-  selected: boolean;
-  isEditMode?: boolean;
-  label?: string;
-  customSize?: number;
-  customWidth?: number;
-  customDepth?: number;
-  customHeight?: number;
-  hasBackdrop?: boolean;
-  intensity?: number;
-  tilt?: number;
-  standType?: 'TRIPOD' | 'PLATE';
-  arrayCount?: number;
-  stairs?: StairConfig[];
-  tableCloth?: TableCloth;
-  trussStructure?: TrussStructureConfig;
-  trussSchematicColors?: boolean;
-  onClick?: (e: ThreeEvent<MouseEvent>) => void;
-}
+/** Model components that take the object's fields directly. */
+const MODELS: Partial<Record<ObjectType, React.FC<ObjectModelProps>>> = {
+  [ObjectType.ROUND_TABLE]: RoundTable,
+  [ObjectType.RECT_TABLE]: RectTable,
+  [ObjectType.CHAIR]: ChairModel,
+  [ObjectType.DOOR]: Door,
+  [ObjectType.COLUMN]: Column,
+  [ObjectType.CHAMPAGNE_TOWER]: ChampagneTower,
+  [ObjectType.EASEL]: Easel,
+  [ObjectType.KIOSK]: Kiosk,
+  [ObjectType.GENERATOR]: Generator,
+  [ObjectType.POWER_DISTRO]: PowerDistro,
+  [ObjectType.POWER_OUTLET]: PowerOutlet,
+  [ObjectType.CABLE_RUN]: CableRun,
+  [ObjectType.CABLE_RAMP]: CableRamp,
+  [ObjectType.SERVICE_STATION]: ServiceStation,
+  [ObjectType.BEVERAGE_CART]: BeverageCart,
+  [ObjectType.BAR_COUNTER]: BarCounter,
+  [ObjectType.ZONE]: Zone,
+  [ObjectType.FLOW_ARROW]: FlowArrow,
+  [ObjectType.DIMENSION]: Dimension,
+  [ObjectType.WALL]: PartitionWall,
+  [ObjectType.DEVICE_POINT]: DevicePoint,
+  [ObjectType.TABLE_NUMBER]: TableNumber,
+};
 
-export const BanquetObjectModel: React.FC<BanquetModelProps> = (props) => {
-  const { type, label } = props;
+/** Floor graphics keep their name tag close to the floor instead of 2 m up. */
+const LABEL_HEIGHT: Partial<Record<ObjectType, number>> = {
+  [ObjectType.ZONE]: 0.5,
+  [ObjectType.CABLE_RUN]: 0.5,
+  [ObjectType.FLOW_ARROW]: 0.5,
+  [ObjectType.CABLE_RAMP]: 0.6,
+  [ObjectType.POWER_OUTLET]: 1,
+  [ObjectType.CHAIR]: 1.4,
+  [ObjectType.DEVICE_POINT]: 1.05,
+};
+
+export const BanquetObjectModel: React.FC<ObjectModelProps> = (props) => {
+  const { type, label, note } = props;
 
   let content = null;
 
-  if (type === ObjectType.ROUND_TABLE) {
-    content = <RoundTable {...props} />;
-  } else if (type === ObjectType.RECT_TABLE) {
-    content = <RectTable {...props} />;
+  const Model = MODELS[type];
+  if (Model) {
+    content = <Model {...props} />;
   } else if (type === ObjectType.STAGE) {
     content = <Stage width={props.customWidth} depth={props.customDepth} height={props.customHeight} hasBackdrop={props.hasBackdrop} stairs={props.stairs} {...props} />;
   } else if (type === ObjectType.RED_CARPET) {
@@ -64,7 +98,8 @@ export const BanquetObjectModel: React.FC<BanquetModelProps> = (props) => {
   return (
     <group>
       {content}
-      {label && <Label text={label} />}
+      {/* Dimensions and number plates print their label on the object itself. */}
+      <Label text={type === ObjectType.DIMENSION || type === ObjectType.TABLE_NUMBER ? undefined : label} note={note?.trim()} height={LABEL_HEIGHT[type]} />
     </group>
   );
 };

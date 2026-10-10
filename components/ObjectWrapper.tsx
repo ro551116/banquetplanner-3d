@@ -62,24 +62,10 @@ export const ObjectWrapper = React.memo<ObjectWrapperProps>(
         onPointerOut={handlePointerOut}
       >
         <BanquetObjectModel
-          type={obj.type}
-          color={obj.color}
+          {...obj}
           selected={isSelected && isEditMode}
           isEditMode={isEditMode}
-          label={obj.label}
-          customSize={obj.customSize}
-          customWidth={obj.customWidth}
-          customDepth={obj.customDepth}
-          customHeight={obj.customHeight}
-          hasBackdrop={obj.hasBackdrop}
           tilt={obj.rotation.x}
-          intensity={obj.intensity}
-          standType={obj.standType}
-          stairs={obj.stairs}
-          tableCloth={obj.tableCloth}
-          arrayCount={obj.arrayCount}
-          trussStructure={obj.trussStructure}
-          trussSchematicColors={obj.trussSchematicColors}
         />
       </group>
     );

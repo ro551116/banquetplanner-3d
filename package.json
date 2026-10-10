@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "tsx --test trussConfig.test.ts services/sceneData.test.ts"
+    "test": "tsx --test trussConfig.test.ts services/sceneData.test.ts planning.test.ts floorPlan.test.ts"
   },
   "dependencies": {
     "@react-three/drei": "9.96.1",

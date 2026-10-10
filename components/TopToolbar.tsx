@@ -15,7 +15,7 @@ interface TopToolbarProps extends Pick<EditorControlsProps, 'tool' | 'setTool' |
   viewEnvironment: 'day' | 'night'; setViewEnvironment: React.Dispatch<React.SetStateAction<'day' | 'night'>>;
   takeScreenshot: () => void; panelOpen: boolean; setPanelOpen: (open: boolean) => void;
   addPanelOpen: boolean; setAddPanelOpen: (open: boolean) => void; onBackToList?: () => void;
-  hasTrussStructures: boolean; onOpenTrussSheets: () => void;
+  hasTrussStructures: boolean; onOpenTrussSheets: () => void; onOpenFloorPlan: () => void;
   showLabels: boolean; setShowLabels: (show: boolean) => void;
   saveStatus: SaveStatus; saveError: string | null; onRetrySave: () => void;
   onShortcutHelp: () => void; onMenuOpenChange: (open: boolean) => void;
@@ -74,7 +74,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = props => {
       <button className={button} aria-label="更多" title="更多" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(value => !value)}><MoreHorizontal size={18} /></button>
       {menuOpen && <div role="menu" aria-label="更多操作" className={`absolute right-0 top-full mt-2 w-48 rounded-xl p-1 shadow-lg ring-1 animate-fade-in ${dark ? 'bg-slate-800 text-slate-100 ring-slate-700' : 'bg-white text-slate-900 ring-slate-200'}`}>
         {!dark && menuItem('手繪', toggleDrawing, false, 'sm:hidden')}{menuItem('復原', props.undo, !props.canUndo, 'sm:hidden')}{menuItem('重做', props.redo, !props.canRedo, 'sm:hidden')}
-        {menuItem('匯入場景', props.handleImportClick)}{menuItem('匯出 JSON', props.exportScene)}{menuItem('結構圖', props.onOpenTrussSheets, !props.hasTrussStructures)}
+        {menuItem('匯入場景', props.handleImportClick)}{menuItem('匯出 JSON', props.exportScene)}{menuItem('平面圖', props.onOpenFloorPlan)}{menuItem('結構圖', props.onOpenTrussSheets, !props.hasTrussStructures)}
         {!dark && menuItem('批次新增', () => props.setShowBatchModal(true))}{menuItem('快捷鍵說明', props.onShortcutHelp)}
       </div>}
     </div>

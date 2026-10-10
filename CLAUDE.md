@@ -9,7 +9,7 @@ npm run dev        # Start dev server on port 3000
 npm run dev:server # Scene API + built dist on port 3001 (PORT, DATA_DIR)
 npm run build      # Production build to /dist
 npm run typecheck  # tsc --noEmit
-npm test           # node:test via tsx (trussConfig, sceneData)
+npm test           # node:test via tsx (trussConfig, sceneData, planning, floorPlan)
 ```
 
 No linter or formatter is configured.
@@ -27,7 +27,7 @@ No linter or formatter is configured.
 
 All state lives in `App.tsx` and is passed down as props. No Redux or Context API. Four custom hooks encapsulate domain logic:
 
-- **`useObjects`** — Object CRUD, batch operations, duplicate, stair management. Wraps `useHistory` for undo/redo (50-state limit). Updates that change nothing return the previous array (no empty undo steps).
+- **`useObjects`** — Object CRUD, batch operations, duplicate, stair management. Wraps `useHistory` for undo/redo (50-state limit). Updates that change nothing return the previous array (no empty undo steps). Table number plates standing on a table follow it: moves/rotations go through `carryTableNumbers`, deletes and duplicates include `attachedTableNumbers` (DirectManipulation also drags them live).
 - **`useHistory`** — Undo/redo reducer. `set(value, { mergeKey })` coalesces consecutive same-key edits within 1 s (sliders, colour pickers) into one undo step.
 - **`useSceneIO`** — Load (through `normalizeSceneData`), serial versioned autosave (2 s debounce, `baseUpdatedAt` → 409 conflict dialog), automatic retry with backoff, unload guard while anything is unsaved, JSON import/export, thumbnails.
 - **`useDrawing`** — Drawing mode toggle, path creation/clearing.
@@ -36,9 +36,9 @@ All state lives in `App.tsx` and is passed down as props. No Redux or Context AP
 ### 3D Rendering Pipeline
 
 `SceneCanvas` wraps `@react-three/fiber` Canvas. It renders:
-1. **Hall geometry** — floor, walls, baseboards built from `HallConfig`
+1. **Hall geometry** — floor, walls (one mitred prism per outline edge, each cut away when its outside faces the camera), baseboards built from `HallConfig`; `getHallOutline` turns a plain hall into its 4-corner rectangle so one code path draws every shape
 2. **Objects** — each wrapped in `ObjectWrapper` (handles selection, dragging, transform gizmo)
-3. **Models** — `BanquetObjects.tsx` contains all 3D model implementations (tables, speakers, lights, stage, etc.)
+3. **Models** — `BanquetObjects.tsx` dispatches each `ObjectType` to its model in `components/models/` (tables, stage, audio, lighting, rigging, misc, wedding, structure, power, catering, annotations, interior). Models receive `ObjectModelProps` (`components/models/modelProps.ts`: the object's data fields plus render state). Hall walls and partition walls share the mitred-band helpers in `components/models/wallGeometry.ts`
 4. **Lighting** — different setups for EDIT mode (3-point) vs VIEW mode (day/night environments)
 5. **Post-processing** — N8AO (AO), SMAA (AA), optional Bloom/Vignette in VIEW mode
 
@@ -50,9 +50,11 @@ All state lives in `App.tsx` and is passed down as props. No Redux or Context AP
 ### Data Model
 
 Core types in `types.ts`:
-- `BanquetObject` — position/rotation/scale + type-specific fields (customSize, customWidth, customDepth, hasBackdrop, stairs, intensity, standType, tableCloth)
-- `HallConfig` — room dimensions + wall/floor colors and material properties
-- `ObjectType` enum — tables, speakers, lights, stage, carpet, decor
+- `BanquetObject` — position/rotation/scale + type-specific fields (customSize, customWidth, customDepth, hasBackdrop, stairs, intensity, standType, tableCloth, seating fields seatCount/chairLayout/childSeats/vegetarianSeats/standby, note, path `points`, device point `system` — its code is `label`)
+- `HallConfig` — room dimensions + wall/floor colors and material properties + floor plan `planInfo` + optional irregular `outline` (wall corners; `width`/`length` then equal its bounding box, whose centre need not be the origin — use `getHallBounds`, not `±width/2`)
+- `ObjectType` enum — tables, speakers, lights, stage, carpet, decor, venue structure, power, catering, plan annotations
+
+`planning.ts` holds the shared planning rules: table specs and seat counting (`getSeating`, `summarizeSeating`), path-object helpers, hall outline geometry (`getHallOutline`, `getHallBounds`, `getWallSegments`, `outlineTemplate`, `withOutline`), placement wall snapping onto the outline and partitions (`getPartitionSegments`, `snapToWall`) and device point systems (`DEVICE_SYSTEMS`, `nextDeviceCode`). `floorPlan.ts` builds the 2D SVG plan and the device point CSV (pure, no DOM); `components/FloorPlanModal.tsx` previews and exports them. Path objects (`CABLE_RUN`, `FLOW_ARROW`, `DIMENSION`, `WALL`) and the hall outline are drawn vertex by vertex through `components/PathPlacement.tsx` instead of `PlacementPreview`; `components/HallShapeEditor.tsx` edits the outline in 場地設定. Device point placement stays active after each click and advances the code.
 
 ### Key Files
 
@@ -60,7 +62,7 @@ Core types in `types.ts`:
 |------|------|
 | `App.tsx` | Root orchestrator, all top-level state |
 | `components/SceneCanvas.tsx` | 3D viewport, lighting, post-processing |
-| `components/BanquetObjects.tsx` | All 3D model geometry (~700 lines) |
+| `components/BanquetObjects.tsx` | Model dispatcher (`ObjectType` → model component) and name/note label |
 | `components/ObjectWrapper.tsx` | Object selection, dragging, transform handles |
 | `components/Sidebar.tsx` | Right properties panel/sheet: selection first, collapsible 場地設定, object list |
 | `components/PropertiesPanel.tsx` | Selected object property editors (shared `NumberField`/`TextField`) |
@@ -73,7 +75,7 @@ Core types in `types.ts`:
 
 - Autosave to the server API with optimistic concurrency: data PUTs send `baseUpdatedAt`; a 409 pauses autosave and opens `SceneConflictDialog` (export / reload latest / overwrite). Agents and curl may omit it to overwrite unconditionally.
 - Failed saves retry automatically (2 s, 5 s, 15 s, then every 30 s); the browser leave prompt is armed whenever revisions are unsaved, including error and conflict states.
-- `services/sceneData.ts` normalizes loaded and imported scenes (finite transforms, known types, unique ids, clamped hall). A scene without an `objects` section opens with the default stage and speakers; imports replace only the sections the file contains.
+- `services/sceneData.ts` normalizes loaded and imported scenes (finite transforms, known types, unique ids, clamped hall, well-typed planning fields, finite path points, string-only `planInfo`). A scene without an `objects` section opens with the default stage and speakers; imports replace only the sections the file contains.
 - `EditorErrorBoundary` keeps a render error inside the editor body with reload/back actions.
 - Leaving the editor stores a 480×270 list thumbnail when the scene has none or was edited (thumbnail-only PUTs do not touch `updated_at`)
 - The canvas renders on demand (`frameloop="demand"`). Code that mutates three objects outside React must call `invalidate()`.
@@ -88,3 +90,4 @@ Core types in `types.ts`:
 - React QA through DOM internals: a node's `__reactFiber` can point to an old alternate. Walk to HostRoot, take `root.stateNode.current`, find the fiber whose `stateNode` is the DOM node, then inspect its ancestors and hooks. Use this for diagnosis only, cross-check the real DOM, screenshots and interactions, and never mutate app state through fibers.
 - `@react-three/drei` 9.96 `Edges` replaces `ref.current.geometry` without disposing the previous `EdgesGeometry`. `Highlight` in `components/models/shared.tsx` owns and disposes its outline geometry. When changing editable procedural models, test repeated resizing of a selected object and watch `gl.info.memory.geometries` (after the fix it stays at 537 across 13 width changes).
 - Headless QA: hidden headless tabs throttle `requestAnimationFrame`, so camera lerps and canvas frames stall between tool calls. Pump frames in-page (`requestAnimationFrame` loop for ~2.5s) before screenshots. `(pointer: coarse)` only matches while `Emulation.setTouchEmulationEnabled` is active on the same live CDP session; viewport `hasTouch` alone does not change it.
+- The renderer is not reachable from page scripts. To check GPU leaks in a browser, add an init script that wraps `WebGLRenderingContext`/`WebGL2RenderingContext` `createBuffer`/`deleteBuffer` (and textures) into live counters, reload, then cycle a dimension field between two values: the count at the starting value must return to its earlier level. Rect tablecloths are cached per distinct size in `cloth.ts`, so the first visit to a new width adds one entry by design.

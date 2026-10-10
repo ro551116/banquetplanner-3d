@@ -1,5 +1,6 @@
 import { BanquetObject, ObjectType, HallConfig, TableCloth } from './types';
 import { createDefaultTrussConfig } from './trussConfig';
+import { DEVICE_SYSTEMS, PARTITION_THICKNESS } from './planning';
 
 export const INITIAL_HALL: HallConfig = {
   width: 15,
@@ -117,6 +118,30 @@ export const PRESET_VIEWS = [
   { id: 'side',     name: '側面 (Side)' },
 ] as const;
 
+/** Defaults for the venue-structure, decor, power, catering and plan-annotation types. */
+const TYPE_DEFAULTS: Partial<Record<ObjectType, Partial<BanquetObject>>> = {
+  [ObjectType.CHAIR]: { color: '#eee8dc', chairStyle: 'banquet' },
+  [ObjectType.DOOR]: { color: '#8b6b4a', customWidth: 1.8, customHeight: 2.4, doorLeaves: 2 },
+  [ObjectType.COLUMN]: { color: '#e8e8e8', customWidth: 0.6, customDepth: 0.6, customHeight: INITIAL_HALL.height, shape: 'rect' },
+  [ObjectType.CHAMPAGNE_TOWER]: { color: '#f5f0e8', tableCloth: 'satin', tiers: 5 },
+  [ObjectType.EASEL]: { color: '#8b5a2b', customWidth: 0.6, customHeight: 0.9 },
+  [ObjectType.KIOSK]: { color: '#f5f5f4', customWidth: 0.6, customDepth: 0.6, customHeight: 1.7 },
+  [ObjectType.GENERATOR]: { color: '#4b5563', customWidth: 2.2, customDepth: 0.95, customHeight: 1.2, powerKva: 25 },
+  [ObjectType.POWER_DISTRO]: { color: '#9ca3af' },
+  [ObjectType.POWER_OUTLET]: { color: '#dc2626', voltage: '110V' },
+  [ObjectType.CABLE_RUN]: { color: '#b91c1c' },
+  [ObjectType.CABLE_RAMP]: { color: '#facc15', customWidth: 0.9 },
+  [ObjectType.SERVICE_STATION]: { color: '#f5f0e8', tableCloth: 'linen', customWidth: 1.8 },
+  [ObjectType.BEVERAGE_CART]: { color: '#a1a1aa' },
+  [ObjectType.BAR_COUNTER]: { color: '#3f2a1d', customWidth: 2.4 },
+  [ObjectType.ZONE]: { color: '#3b82f6', customWidth: 3, customDepth: 2, shape: 'rect' },
+  [ObjectType.FLOW_ARROW]: { color: '#2563eb' },
+  [ObjectType.DIMENSION]: { color: '#334155' },
+  [ObjectType.WALL]: { color: '#f1efe9', customWidth: PARTITION_THICKNESS, customHeight: INITIAL_HALL.height },
+  [ObjectType.DEVICE_POINT]: { color: DEVICE_SYSTEMS.network.color, system: 'network' },
+  [ObjectType.TABLE_NUMBER]: { color: '#ffffff', plateStyle: 'table' },
+};
+
 export const createObjectConfig = (
   type: ObjectType,
   position: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }
@@ -185,5 +210,6 @@ export const createObjectConfig = (
     stairs: type === ObjectType.STAGE ? [{ id: crypto.randomUUID(), side: 'front', offset: 0, width: 2 }] : undefined,
     trussStructure: type === ObjectType.TRUSS_STRUCTURE ? createDefaultTrussConfig() : undefined,
     trussSchematicColors: type === ObjectType.TRUSS_STRUCTURE ? false : undefined,
+    ...TYPE_DEFAULTS[type],
   };
 };

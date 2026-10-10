@@ -36,6 +36,38 @@ export enum ObjectType {
   EQUIPMENT_MIXER = 'EQUIPMENT_MIXER', // FOH Mixer Console
   EFFECTS_FOG = 'EFFECTS_FOG',     // Fog / Haze Machine
 
+  // Venue structure & seating
+  CHAIR = 'CHAIR',                 // Single loose chair (banquet or child high chair)
+  DOOR = 'DOOR',                   // Wall door / service opening
+  COLUMN = 'COLUMN',               // Architectural column / pilaster
+
+  // Wedding decor & vendors
+  CHAMPAGNE_TOWER = 'CHAMPAGNE_TOWER',
+  EASEL = 'EASEL',                 // Welcome / photo easel
+  KIOSK = 'KIOSK',                 // Vendor machine (photo print, cocktail machine, ...)
+  TABLE_NUMBER = 'TABLE_NUMBER',   // Table number plate (on a table top, or a floor-standing sign)
+
+  // Power
+  GENERATOR = 'GENERATOR',
+  POWER_DISTRO = 'POWER_DISTRO',   // Distribution box
+  POWER_OUTLET = 'POWER_OUTLET',   // Power drop / outlet point
+  CABLE_RUN = 'CABLE_RUN',         // Path: cable route
+  CABLE_RAMP = 'CABLE_RAMP',       // Cable protector across walkways
+
+  // Catering
+  SERVICE_STATION = 'SERVICE_STATION',
+  BEVERAGE_CART = 'BEVERAGE_CART',
+  BAR_COUNTER = 'BAR_COUNTER',
+
+  // Plan annotations
+  ZONE = 'ZONE',                   // Floor area marker
+  FLOW_ARROW = 'FLOW_ARROW',       // Path: circulation arrow
+  DIMENSION = 'DIMENSION',         // Path: two-point dimension line
+  DEVICE_POINT = 'DEVICE_POINT',   // Numbered device / cable drop point (network, AP, camera, ...)
+
+  // Interior structure
+  WALL = 'WALL',                   // Path: partition wall
+
   // Legacy
   SPEAKER = 'SPEAKER',
   LIGHT = 'LIGHT'
@@ -55,6 +87,21 @@ export interface StairConfig {
   offset: number; // Offset from center of that side (meters)
   width: number;  // Width of the stair unit (meters)
 }
+
+/** Path vertex in the object's local XZ plane (meters, relative to `position`). */
+export interface PathPoint {
+  x: number;
+  z: number;
+}
+
+export type ChairLayout = 'both' | 'front' | 'none';
+export type ChairStyle = 'banquet' | 'child';
+export type FootprintShape = 'rect' | 'round';
+export type Voltage = '110V' | '220V';
+/** Device point systems; each has a code prefix, colour and plan symbol (planning.ts DEVICE_SYSTEMS). */
+export type DeviceSystem = 'network' | 'doorplate' | 'wifi' | 'camera' | 'pos' | 'display' | 'access' | 'audio' | 'other';
+/** TABLE_NUMBER: a small tabletop stand or a floor-standing sign. */
+export type PlateStyle = 'table' | 'floor';
 
 export type TableCloth = 'linen' | 'satin' | 'velvet';
 
@@ -120,11 +167,52 @@ export interface BanquetObject {
   tableCloth?: TableCloth; // Table cloth material type
   trussStructure?: TrussStructureConfig;
   trussSchematicColors?: boolean;
+  /** Free planning note shown under the label and in the floor plan notes (e.g. "13:30 撤離"). */
+  note?: string;
+  /** ROUND_TABLE: chair count override (0-16); default follows table size. */
+  seatCount?: number;
+  /** RECT_TABLE: which long sides get chairs. Default 'both'. */
+  chairLayout?: ChairLayout;
+  /** Tables: how many of the seats are child high chairs (counted within the seats). */
+  childSeats?: number;
+  /** Tables: vegetarian meal count, shown as green markers. */
+  vegetarianSeats?: number;
+  /** Tables: standby table (備桌); excluded from the table/seat totals. */
+  standby?: boolean;
+  /** CHAIR */
+  chairStyle?: ChairStyle;
+  /** CHAMPAGNE_TOWER: glass tiers (3-7). */
+  tiers?: number;
+  /** DOOR: 1 = single leaf, 2 = double leaf. */
+  doorLeaves?: 1 | 2;
+  /** COLUMN, ZONE: rectangular or round/elliptical footprint. */
+  shape?: FootprintShape;
+  /** POWER_OUTLET */
+  voltage?: Voltage;
+  /** GENERATOR, POWER_DISTRO: rated capacity in kVA. */
+  powerKva?: number;
+  /** CABLE_RUN, FLOW_ARROW, DIMENSION, WALL: polyline vertices relative to `position`. */
+  points?: PathPoint[];
+  /** DEVICE_POINT: which system the point belongs to; its code is the object's label (e.g. AP-07). */
+  system?: DeviceSystem;
+  /** TABLE_NUMBER: tabletop stand (default) or floor sign; the number shown is the object's label. */
+  plateStyle?: PlateStyle;
+}
+
+/** Title block printed on the exported floor plan. Stored with the hall. */
+export interface PlanInfo {
+  title?: string;
+  venue?: string;
+  date?: string;
+  version?: string;
+  notes?: string;
 }
 
 export interface HallConfig {
-  width: number; // x-axis
-  length: number; // z-axis
+  /** X extent; with an outline this is the outline's bounding-box width. */
+  width: number;
+  /** Z extent; with an outline this is the outline's bounding-box length. */
+  length: number;
   height: number; // y-axis
   wallColor: string;
   floorColor: string;
@@ -133,6 +221,12 @@ export interface HallConfig {
   floorRoughness?: number;
   floorMetalness?: number;
   baseboard?: string;
+  planInfo?: PlanInfo;
+  /**
+   * Irregular floor plan: wall corners in world XZ (meters), in order, implicitly closed.
+   * Absent = a width × length rectangle centred on the origin.
+   */
+  outline?: PathPoint[];
 }
 
 export interface CameraView {

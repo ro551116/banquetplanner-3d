@@ -1,11 +1,51 @@
 import React from 'react';
 import { MousePointer2, Trash2, X } from 'lucide-react';
 import { ObjectType } from '../types';
-import type { BanquetObject, StairConfig, StairSide, TableCloth } from '../types';
+import type { BanquetObject, DeviceSystem, StairConfig, StairSide, TableCloth } from '../types';
 import { TABLE_PRESETS, TABLE_CLOTH_MATERIALS } from '../constants';
 import { formatTrussTitle, getTrussDimensions } from '../trussConfig';
+import { DEVICE_SYSTEM_ORDER, DEVICE_SYSTEMS, getRoundTableSpec, getSeating, getTableTop, isOnTable, isPathType, MAX_ROUND_TABLE_SEATS, nextDeviceCode, pathLength } from '../planning';
 import { OBJECT_TYPE_META, getObjectDisplayName } from './objectTypeMeta';
 import { NumberField, TextField } from './ui/NumberField';
+
+type SizeKey = 'customWidth' | 'customDepth' | 'customHeight';
+interface SizeField { key: SizeKey; label: string; fallback: number; min?: number; max?: number; step?: number }
+
+/** Dimension fields per type; defaults mirror createObjectConfig and the models. */
+const SIZE_FIELDS: Partial<Record<ObjectType, SizeField[]>> = {
+  [ObjectType.DOOR]: [{ key: 'customWidth', label: '寬', fallback: 1.8, min: 0.6, max: 8 }, { key: 'customHeight', label: '高', fallback: 2.4, min: 1.8, max: 6 }],
+  [ObjectType.COLUMN]: [{ key: 'customWidth', label: '寬', fallback: 0.6, max: 5 }, { key: 'customDepth', label: '深', fallback: 0.6, max: 5 }, { key: 'customHeight', label: '高', fallback: 5, min: 1, max: 50 }],
+  [ObjectType.EASEL]: [{ key: 'customWidth', label: '畫板寬', fallback: 0.6, min: 0.3, max: 1.5 }, { key: 'customHeight', label: '畫板高', fallback: 0.9, min: 0.3, max: 1.8 }],
+  [ObjectType.KIOSK]: [{ key: 'customWidth', label: '寬', fallback: 0.6, min: 0.3, max: 4 }, { key: 'customDepth', label: '深', fallback: 0.6, min: 0.3, max: 4 }, { key: 'customHeight', label: '高', fallback: 1.7, min: 0.5, max: 3 }],
+  [ObjectType.GENERATOR]: [{ key: 'customWidth', label: '長', fallback: 2.2, min: 0.5, max: 12 }, { key: 'customDepth', label: '深', fallback: 0.95, min: 0.4, max: 4 }, { key: 'customHeight', label: '高', fallback: 1.2, min: 0.4, max: 4 }],
+  [ObjectType.CABLE_RAMP]: [{ key: 'customWidth', label: '總長', fallback: 0.9, min: 0.9, max: 30, step: 0.9 }],
+  [ObjectType.SERVICE_STATION]: [{ key: 'customWidth', label: '長', fallback: 1.8, min: 0.9, max: 8 }],
+  [ObjectType.BAR_COUNTER]: [{ key: 'customWidth', label: '長', fallback: 2.4, min: 1, max: 12 }],
+  [ObjectType.ZONE]: [{ key: 'customWidth', label: '寬', fallback: 3, max: 100 }, { key: 'customDepth', label: '深', fallback: 2, max: 100 }],
+  [ObjectType.WALL]: [{ key: 'customWidth', label: '厚度', fallback: 0.12, min: 0.03, max: 1, step: 0.01 }, { key: 'customHeight', label: '高', fallback: 3, min: 0.3, max: 20 }],
+};
+
+const FLOW_PRESETS = [
+  { label: '新人進場', color: '#db2777' },
+  { label: '出菜動線', color: '#ea580c' },
+  { label: '賓客動線', color: '#2563eb' },
+  { label: '撤場動線', color: '#64748b' },
+];
+
+function Segmented<T extends string | number>({ label, value, options, onChange }: { label: string; value: T; options: Array<[T, string]>; onChange: (value: T) => void }) {
+  return <div className="space-y-1.5">
+    <p className="ui-label">{label}</p>
+    <div className="ui-segmented flex w-full" role="group" aria-label={label}>
+      {options.map(([option, text]) => <button type="button" key={String(option)} className="ui-segment flex-1" aria-pressed={value === option} onClick={() => onChange(option)}>{text}</button>)}
+    </div>
+  </div>;
+}
+
+function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return <button type="button" role="switch" aria-checked={checked} aria-label={label} className="flex min-h-10 w-full items-center justify-between rounded-lg text-sm text-slate-700" onClick={() => onChange(!checked)}>
+    {label}<span className={`flex h-6 w-11 items-center rounded-full p-1 ${checked ? 'bg-slate-700' : 'bg-slate-200'}`}><span className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-5' : ''}`} /></span>
+  </button>;
+}
 
 interface PropertiesPanelProps {
   selectedIds: Set<string>;
@@ -17,12 +57,16 @@ interface PropertiesPanelProps {
   handleRemoveStair: (stageId: string, stairId: string) => void;
   handleUpdateStair: (stageId: string, stairId: string, updates: Partial<StairConfig>) => void;
   onEditTrussStructure: (object: BanquetObject) => void;
+  /** Path objects: draw the polyline again, keeping every other property. */
+  onRedrawPath: (object: BanquetObject) => void;
+  /** Adds a tabletop number plate (with the table's label) to each given table that has none. */
+  onAddTableNumbers: (tableIds: Set<string>) => void;
 }
 
 // Maps to (-180, 180] so dragging the slider to its right end shows 180° instead of jumping to -180°.
 const wrapDegrees = (radians: number) => 180 - ((((180 - radians * 180 / Math.PI) % 360) + 360) % 360);
 
-export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedIds, objects, updateObject, deleteSelected, handleBulkPropertyUpdate, handleAddStair, handleRemoveStair, handleUpdateStair, onEditTrussStructure }) => {
+export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedIds, objects, updateObject, deleteSelected, handleBulkPropertyUpdate, handleAddStair, handleRemoveStair, handleUpdateStair, onEditTrussStructure, onRedrawPath, onAddTableNumbers }) => {
   const count = selectedIds.size;
   const object = count === 1 ? objects.find(item => selectedIds.has(item.id)) : undefined;
   if (count === 0) return null;
@@ -31,6 +75,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedIds, o
   const isLight = object?.type.includes('LIGHT');
   const pan = object ? wrapDegrees(object.rotation.y) : 0;
   const tilt = object ? Math.max(-90, Math.min(90, wrapDegrees(object.rotation.x ?? 0))) : 0;
+  const seating = object ? getSeating(object) : null;
+  const sizeFields = object ? (SIZE_FIELDS[object.type] ?? []).filter(field => !(object.type === ObjectType.COLUMN && object.shape === 'round' && field.key === 'customDepth'))
+    .map(field => object.type === ObjectType.COLUMN && object.shape === 'round' && field.key === 'customWidth' ? { ...field, label: '直徑' } : field) : [];
   return <div key={object?.id ?? 'multiple'} className="space-y-6 animate-fade-in">
     <header className="flex items-start justify-between gap-3">
       <div className="flex min-w-0 items-start gap-2">
@@ -46,8 +93,14 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedIds, o
       <h3 className="ui-section-title">批量修改顏色</h3>
       <input type="color" aria-label="批量修改顏色" className="h-9 w-9 cursor-pointer rounded-lg ring-1 ring-slate-200 coarse:h-10 coarse:w-10" onChange={event => handleBulkPropertyUpdate(selectedIds, { color: event.target.value }, 'bulk:color')} />
     </section>}
+    {count > 1 && (() => {
+      const tables = objects.filter(item => selectedIds.has(item.id) && getTableTop(item));
+      return tables.length > 0 && <button type="button" className="ui-btn-secondary w-full" onClick={() => onAddTableNumbers(new Set(tables.map(table => table.id)))}>為 {tables.length} 張桌子加上桌號牌</button>;
+    })()}
     {object && <>
       <TextField key={`name-${object.id}`} label="名稱" value={object.label ?? ''} placeholder={meta?.label} onChange={label => updateObject(object.id, { label })} />
+      <TextField key={`note-${object.id}`} label="備註" value={object.note ?? ''} placeholder="例如：13:30 需撤離" onChange={note => updateObject(object.id, { note })} />
+      {(object.type === ObjectType.EASEL || object.type === ObjectType.KIOSK || object.type === ObjectType.TABLE_NUMBER) && <p className="-mt-3 text-xs text-slate-500">{object.type === ObjectType.EASEL ? '畫板' : object.type === ObjectType.KIOSK ? '機台招牌' : '牌面'}文字使用「名稱」</p>}
       <section className="space-y-3">
         <h3 className="ui-section-title">位置</h3>
         <div className="grid grid-cols-3 gap-3">
@@ -80,7 +133,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedIds, o
           <span className="text-xs tabular-nums text-slate-500">{object.color}</span>
         </div>
       </section>
-      {(object.type === ObjectType.ROUND_TABLE || object.type === ObjectType.RECT_TABLE) && <section className="space-y-4">
+      {(object.type === ObjectType.ROUND_TABLE || object.type === ObjectType.RECT_TABLE || object.type === ObjectType.CHAMPAGNE_TOWER || object.type === ObjectType.SERVICE_STATION) && <section className="space-y-4">
         <h3 className="ui-section-title">桌布</h3>
         <div className="grid grid-cols-4 gap-2">
           {TABLE_PRESETS.map(preset => <button type="button" key={preset.id} aria-pressed={object.color === preset.color && object.tableCloth === preset.cloth} aria-label={preset.name} onClick={() => updateObject(object.id, { color: preset.color, tableCloth: preset.cloth })} className={`flex flex-col items-center gap-2 rounded-lg p-1.5 ${object.color === preset.color && object.tableCloth === preset.cloth ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}>
@@ -99,6 +152,81 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedIds, o
         <select aria-label="圓桌尺寸" value={object.customSize ?? 6} className="ui-input" onChange={event => updateObject(object.id, { customSize: Number(event.target.value) })}>
           <option value={4}>4 尺（5 人）</option><option value={5}>5 尺（8 人）</option><option value={6}>6 尺（10 人）</option><option value={8}>8 尺（12 人）</option>
         </select>
+      </section>}
+      {object.type === ObjectType.RECT_TABLE && <section className="space-y-3">
+        <h3 className="ui-section-title">長桌尺寸</h3>
+        <select aria-label="長桌尺寸" value={object.customSize ?? 6} className="ui-input" onChange={event => updateObject(object.id, { customSize: Number(event.target.value) })}>
+          <option value={6}>6 尺（180 cm）</option><option value={8}>8 尺（240 cm）</option>
+        </select>
+      </section>}
+      {seating && <section className="space-y-4">
+        <h3 className="ui-section-title">座位</h3>
+        {object.type === ObjectType.ROUND_TABLE ? <div className="space-y-2">
+          <NumberField label="座位數" value={seating.seats} min={0} max={MAX_ROUND_TABLE_SEATS} step={1} precision={0} unit="位" onChange={seatCount => updateObject(object.id, { seatCount })} />
+          {object.seatCount !== undefined && object.seatCount !== getRoundTableSpec(object.customSize).chairs && <button type="button" className="text-xs text-blue-700 hover:underline" onClick={() => updateObject(object.id, { seatCount: undefined })}>恢復預設 {getRoundTableSpec(object.customSize).chairs} 位</button>}
+        </div> : <Segmented label="座椅" value={object.chairLayout ?? 'both'} options={[['both', '兩側'], ['front', '單側'], ['none', '無椅']]} onChange={chairLayout => updateObject(object.id, { chairLayout })} />}
+        {seating.seats > 0 && <div className="grid grid-cols-2 gap-3">
+          <NumberField label="兒童椅" value={seating.childSeats} min={0} max={seating.seats} step={1} precision={0} unit="位" onChange={childSeats => updateObject(object.id, { childSeats })} />
+          <NumberField label="素食" value={seating.vegetarianSeats} min={0} max={seating.seats} step={1} precision={0} unit="位" onChange={vegetarianSeats => updateObject(object.id, { vegetarianSeats })} />
+        </div>}
+        <Switch label="備桌（不計入桌數）" checked={!!object.standby} onChange={standby => updateObject(object.id, { standby })} />
+      </section>}
+      {getTableTop(object) && (() => {
+        const plate = objects.find(item => isOnTable(item, object));
+        return <section className="space-y-2">
+          <h3 className="ui-section-title">桌號牌</h3>
+          {plate ? <p className="text-xs text-slate-600">桌上已有桌號牌「{plate.label?.trim() || '桌號'}」，移動或旋轉桌子時會一起移動。</p>
+            : <button type="button" className="ui-btn-secondary w-full" onClick={() => onAddTableNumbers(new Set([object.id]))}>加上桌號牌</button>}
+        </section>;
+      })()}
+      {object.type === ObjectType.TABLE_NUMBER && <Segmented label="款式" value={object.plateStyle ?? 'table'} options={[['table', '桌上立牌'], ['floor', '落地立牌']]} onChange={plateStyle => updateObject(object.id, { plateStyle })} />}
+      {object.type === ObjectType.CHAIR && <section className="space-y-3">
+        <h3 className="ui-section-title">椅子</h3>
+        <Segmented label="款式" value={object.chairStyle ?? 'banquet'} options={[['banquet', '宴會椅'], ['child', '兒童椅']]} onChange={chairStyle => updateObject(object.id, { chairStyle })} />
+      </section>}
+      {object.type === ObjectType.DOOR && <Segmented label="門扇" value={object.doorLeaves ?? 2} options={[[1, '單開'], [2, '雙開']]} onChange={doorLeaves => updateObject(object.id, { doorLeaves })} />}
+      {(object.type === ObjectType.COLUMN || object.type === ObjectType.ZONE) && <Segmented label="形狀" value={object.shape ?? 'rect'} options={object.type === ObjectType.COLUMN ? [['rect', '方柱'], ['round', '圓柱']] : [['rect', '矩形'], ['round', '橢圓']]} onChange={shape => updateObject(object.id, { shape })} />}
+      {sizeFields.length > 0 && <section className="space-y-3">
+        <h3 className="ui-section-title">尺寸</h3>
+        <div className={`grid gap-3 ${sizeFields.length === 3 ? 'grid-cols-3' : sizeFields.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {sizeFields.map(({ key, label, fallback, min = 0.1, max, step = 0.1 }) => <NumberField key={key} label={label} value={object[key] ?? fallback} min={min} max={max} step={step} unit="m" onChange={value => updateObject(object.id, { [key]: value })} />)}
+        </div>
+      </section>}
+      {object.type === ObjectType.CHAMPAGNE_TOWER && <section className="space-y-3">
+        <h3 className="ui-section-title">香檳塔</h3>
+        <NumberField label="層數" value={object.tiers ?? 5} min={3} max={7} step={1} precision={0} unit="層" onChange={tiers => updateObject(object.id, { tiers })} />
+        <p className="text-xs text-slate-500">共 {Array.from({ length: Math.max(3, Math.min(7, Math.round(object.tiers ?? 5))) }, (_, index) => (index + 1) ** 2).reduce((sum, glasses) => sum + glasses, 0)} 杯</p>
+      </section>}
+      {(object.type === ObjectType.GENERATOR || object.type === ObjectType.POWER_DISTRO) && <section className="space-y-3">
+        <h3 className="ui-section-title">電力</h3>
+        <NumberField label="容量" value={object.powerKva ?? 0} min={0} max={2000} step={5} precision={0} unit="kVA" onChange={powerKva => updateObject(object.id, { powerKva: powerKva > 0 ? powerKva : undefined })} />
+      </section>}
+      {object.type === ObjectType.POWER_OUTLET && <Segmented label="電壓" value={object.voltage ?? '110V'} options={[['110V', '110V'], ['220V', '220V']]} onChange={voltage => updateObject(object.id, { voltage })} />}
+      {object.type === ObjectType.DEVICE_POINT && <section className="space-y-3">
+        <h3 className="ui-section-title">點位</h3>
+        <div className="space-y-1.5">
+          <label className="ui-label" htmlFor={`system-${object.id}`}>系統</label>
+          <select id={`system-${object.id}`} className="ui-input" value={object.system ?? 'other'} onChange={event => {
+            const system = event.target.value as DeviceSystem;
+            // A generated code (PREFIX-NN) follows the new system; a hand-written code is kept.
+            const generated = /^[A-Za-z]+-\d+$/.test(object.label?.trim() ?? '');
+            updateObject(object.id, { system, color: DEVICE_SYSTEMS[system].color, ...(generated ? { label: nextDeviceCode(objects.filter(item => item.id !== object.id), system) } : {}) });
+          }}>
+            {DEVICE_SYSTEM_ORDER.map(system => <option key={system} value={system}>{DEVICE_SYSTEMS[system].label}</option>)}
+          </select>
+        </div>
+        <p className="text-xs text-slate-500">編號即「名稱」；高度 Y 可設成安裝高度（例如天花 AP 2.8 m）。</p>
+      </section>}
+      {isPathType(object.type) && <section className="space-y-3">
+        <h3 className="ui-section-title">{object.type === ObjectType.DIMENSION ? '標註' : '路徑'}</h3>
+        <p className="text-sm tabular-nums text-slate-700">總長 {pathLength(object.points).toFixed(2)} m・{object.points?.length ?? 0} 個節點</p>
+        {object.type === ObjectType.FLOW_ARROW && <div className="grid grid-cols-2 gap-2">
+          {FLOW_PRESETS.map(preset => <button type="button" key={preset.label} className="ui-btn-secondary justify-start gap-2" aria-pressed={object.color === preset.color && object.label === preset.label} onClick={() => updateObject(object.id, { color: preset.color, label: preset.label })}>
+            <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: preset.color }} />{preset.label}
+          </button>)}
+        </div>}
+        {object.type === ObjectType.DIMENSION && <p className="text-xs text-slate-500">名稱留空時顯示實際長度</p>}
+        <button type="button" className="ui-btn-secondary w-full" onClick={() => onRedrawPath(object)}>重新繪製</button>
       </section>}
       {object.type === ObjectType.RED_CARPET && <section className="space-y-3">
         <h3 className="ui-section-title">紅地毯</h3>
@@ -146,9 +274,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ selectedIds, o
             <p className="text-xs text-slate-500">實際外徑：{object.trussStructure.kind === 'TOWER' ? `高 ${dimensions.heightCm}` : `寬 ${dimensions.widthCm} × 高 ${dimensions.heightCm}${object.trussStructure.kind === 'BACKDROP' ? ` × 深 ${dimensions.depthCm ?? 0}` : ''}`} 公分</p>
             <button type="button" className="ui-btn-secondary w-full" onClick={() => onEditTrussStructure(object)}>編輯結構</button>
           </div>
-          <button type="button" role="switch" aria-checked={!!object.trussSchematicColors} aria-label="段長配色" className="flex min-h-10 w-full items-center justify-between rounded-lg text-sm text-slate-700" onClick={() => updateObject(object.id, { trussSchematicColors: !object.trussSchematicColors })}>
-            段長配色<span className={`flex h-6 w-11 items-center rounded-full p-1 ${object.trussSchematicColors ? 'bg-slate-700' : 'bg-slate-200'}`}><span className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${object.trussSchematicColors ? 'translate-x-5' : ''}`} /></span>
-          </button>
+          <Switch label="段長配色" checked={!!object.trussSchematicColors} onChange={trussSchematicColors => updateObject(object.id, { trussSchematicColors })} />
         </section>;
       })()}
     </>}

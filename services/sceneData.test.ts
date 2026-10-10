@@ -70,3 +70,38 @@ test('keeps drawings only when every point is finite', () => {
   });
   assert.deepEqual(result.drawings.map(drawing => drawing.id), ['ok']);
 });
+
+test('drops malformed planning fields and path vertices instead of passing them to models', () => {
+  const result = normalizeSceneData({
+    objects: [
+      object('table', { seatCount: '11', childSeats: 2, standby: 'yes', chairLayout: 'diagonal', note: '13:30 撤離' }),
+      { ...object('cable'), type: 'CABLE_RUN', points: [{ x: 0, z: 0 }, { x: 'far', z: 1 }, { x: 4, z: 2 }] },
+      { ...object('arrow'), type: 'FLOW_ARROW', points: 'not-a-path' },
+    ],
+  });
+  const [table, cable, arrow] = result.objects;
+  assert.equal(table.seatCount, undefined);
+  assert.equal(table.standby, undefined);
+  assert.equal(table.chairLayout, undefined);
+  assert.equal(table.childSeats, 2);
+  assert.equal(table.note, '13:30 撤離');
+  assert.deepEqual(cable.points, [{ x: 0, z: 0 }, { x: 4, z: 2 }]);
+  assert.deepEqual(arrow.points, []);
+  assert.ok(result.repaired >= 5);
+});
+
+test('keeps only string title-block fields of the hall plan info', () => {
+  const result = normalizeSceneData({ hall: { width: 12, length: 18, height: 5, planInfo: { title: '陳李府喜宴', version: 5, venue: '3F Ballroom II' } } });
+  assert.deepEqual(result.hall.planInfo, { title: '陳李府喜宴', venue: '3F Ballroom II' });
+});
+
+test('a hall outline keeps its finite corners and defines width/length; an unusable outline falls back to the rectangle', () => {
+  const shaped = normalizeSceneData({ hall: { width: 99, length: 99, height: 5, outline: [{ x: -6, z: -8 }, { x: 6, z: -8 }, { x: 'x', z: 0 }, { x: 6, z: 8 }, { x: -6, z: 8 }] } });
+  assert.deepEqual(shaped.hall.outline, [{ x: -6, z: -8 }, { x: 6, z: -8 }, { x: 6, z: 8 }, { x: -6, z: 8 }]);
+  assert.deepEqual([shaped.hall.width, shaped.hall.length], [12, 16]);
+  assert.ok(shaped.repaired >= 1);
+
+  const broken = normalizeSceneData({ hall: { width: 14, length: 18, height: 5, outline: [{ x: 0, z: 0 }, { x: 1, z: 1 }] } });
+  assert.equal(broken.hall.outline, undefined);
+  assert.deepEqual([broken.hall.width, broken.hall.length], [14, 18]);
+});

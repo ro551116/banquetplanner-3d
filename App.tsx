@@ -1,8 +1,9 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import * as THREE from 'three';
-import { BanquetObject, ObjectType, TrussStructureConfig } from './types';
+import { BanquetObject, DeviceSystem, ObjectType, PathPoint, TrussStructureConfig } from './types';
 import { createObjectConfig, INITIAL_HALL } from './constants';
 import { cloneTrussConfig, getTrussDimensions } from './trussConfig';
+import { CLOSABLE_PATH_TYPES, DEVICE_SYSTEMS, findTableUnder, getTableTop, isOnTable, isPathType, MIN_OUTLINE_POINTS, nextDeviceCode, pathVertexLimits, withOutline } from './planning';
 import { useObjects } from './hooks/useObjects';
 import { useDrawing } from './hooks/useDrawing';
 import { useSceneIO, captureThumbnail } from './hooks/useSceneIO';
@@ -21,6 +22,7 @@ import { AddObjectPanel } from './components/AddObjectPanel';
 import { getObjectLabel } from './components/objectTypeMeta';
 import { TrussBuilderModal } from './components/TrussBuilderModal';
 import { TrussSheetModal } from './components/TrussSheetModal';
+import { FloorPlanModal } from './components/FloorPlanModal';
 import { TrussStudio } from './components/TrussStudio';
 import { EditorControls } from './components/EditorControls';
 import { EditTool, EditorSession } from './interaction';
@@ -56,6 +58,12 @@ export default function App() {
   const [showTrussBuilder, setShowTrussBuilder] = useState(false);
   const [editingTrussId, setEditingTrussId] = useState<string | null>(null);
   const [showTrussSheet, setShowTrussSheet] = useState(false);
+  const [showFloorPlan, setShowFloorPlan] = useState(false);
+  /** World-XZ vertices of the path object or hall outline being drawn. */
+  const [pathDraft, setPathDraft] = useState<PathPoint[]>([]);
+  const [drawingOutline, setDrawingOutline] = useState(false);
+  /** System used for the next device point placed from the palette. */
+  const [deviceSystem, setDeviceSystem] = useState<DeviceSystem>('network');
   const [isExiting, setIsExiting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
@@ -92,13 +100,18 @@ export default function App() {
       setPendingPlacement(null);
       return true;
     }
+    if (drawingOutline) {
+      setDrawingOutline(false);
+      setPathDraft([]);
+      return true;
+    }
     if (drawing.isDrawMode || drawing.currentPath.length) {
       drawing.cancelPath();
       drawing.setIsDrawMode(false);
       return true;
     }
     return false;
-  }, [pendingPlacement, drawing.isDrawMode, drawing.currentPath.length, drawing.cancelPath, drawing.setIsDrawMode]);
+  }, [pendingPlacement, drawingOutline, drawing.isDrawMode, drawing.currentPath.length, drawing.cancelPath, drawing.setIsDrawMode]);
 
   const sceneIO = useSceneIO({
     sceneId, hall, objects, drawings: drawing.drawings,
@@ -112,12 +125,12 @@ export default function App() {
   }, [sceneIO.saveError, sceneIO.saveStatus, showNotice]);
 
   useKeyboard({
-    enabled: sceneId !== null && sceneIO.saveStatus !== 'conflict' && !showTrussBuilder && !showTrussSheet && !showBatchModal && !showShortcutHelp && !toolbarMenuOpen && !sceneIO.isLoading && !isExiting,
+    enabled: sceneId !== null && sceneIO.saveStatus !== 'conflict' && !showTrussBuilder && !showTrussSheet && !showFloorPlan && !showBatchModal && !showShortcutHelp && !toolbarMenuOpen && !sceneIO.isLoading && !isExiting,
     mode, selectedIds, objects,
     deleteByIds, handleBatchUpdate,
     setSelectedIds, setIsDrawMode: drawing.setIsDrawMode,
     undo, redo, duplicateObjects,
-    onCancel: cancelEditing, busy: isDragging || pendingPlacement !== null,
+    onCancel: cancelEditing, busy: isDragging || pendingPlacement !== null || drawingOutline,
     tool: editTool, setTool: tool => { cancelEditing(); setEditTool(tool); }, snapStep
   });
 
@@ -174,22 +187,123 @@ export default function App() {
     }
   }, [sceneId, sceneIO.flushSave, sceneIO.shouldRefreshThumbnail, cancelEditing, showNotice]);
 
+  const createDevicePoint = (system: DeviceSystem, existing: BanquetObject[]): BanquetObject => ({
+    ...createObjectConfig(ObjectType.DEVICE_POINT), system, color: DEVICE_SYSTEMS[system].color, label: nextDeviceCode(existing, system),
+  });
+
   const beginPlacement = (type: ObjectType) => {
     cancelEditing();
     if (!docked) setPanelOpen(false);
     setSelectedIds(new Set());
     setEditTool('move');
-    setPendingPlacement([createObjectConfig(type)]);
+    const object = type === ObjectType.DEVICE_POINT ? createDevicePoint(deviceSystem, objects) : createObjectConfig(type);
+    if (type === ObjectType.COLUMN || type === ObjectType.WALL) object.customHeight = hall.height;
+    setPendingPlacement([object]);
   };
 
-  const placePending = (position: { x: number; y: number; z: number }) => {
+  const placePending = (position: { x: number; y: number; z: number }, rotationY?: number) => {
     if (!pendingPlacement) return;
-    const placed = pendingPlacement.map(object => ({
-      ...object,
-      position: { x: object.position.x + position.x, y: object.position.y + position.y, z: object.position.z + position.z },
-    }));
+    const placed = pendingPlacement.map(object => {
+      const next = {
+        ...object,
+        position: { x: object.position.x + position.x, y: object.position.y + position.y, z: object.position.z + position.z },
+        rotation: rotationY === undefined ? object.rotation : { ...object.rotation, y: rotationY },
+      };
+      // A plate set on a table shows that table's number unless it was named already.
+      const table = next.type === ObjectType.TABLE_NUMBER && !next.label?.trim() ? findTableUnder(objects, next.position) : null;
+      return table && isOnTable(next, table) ? { ...next, label: table.label?.trim() ?? '' } : next;
+    });
     setSelectedIds(handleBatchAddObjects(placed));
+    // Device points and plates are placed in runs (room after room, table after table): stay in placement.
+    const [single] = placed;
+    const again = placed.length !== 1 ? null
+      : single.type === ObjectType.DEVICE_POINT ? createDevicePoint(single.system ?? 'other', [...objects, ...placed])
+      : single.type === ObjectType.TABLE_NUMBER ? { ...createObjectConfig(ObjectType.TABLE_NUMBER), color: single.color, plateStyle: single.plateStyle }
+      : null;
+    setPendingPlacement(again && [again]);
+  };
+  /** Tabletop plates for the given tables that have none yet, numbered with each table's label. */
+  const addTableNumbers = (ids: Set<string>) => {
+    const plates = objects.filter(object => object.type === ObjectType.TABLE_NUMBER);
+    const added = objects.flatMap(table => {
+      const top = ids.has(table.id) ? getTableTop(table) : null;
+      if (!top || plates.some(plate => isOnTable(plate, table))) return [];
+      return [{
+        ...createObjectConfig(ObjectType.TABLE_NUMBER, { x: table.position.x, y: table.position.y + top.height, z: table.position.z }),
+        rotation: { x: 0, y: table.rotation.y, z: 0 },
+        label: table.label?.trim() ?? '',
+      }];
+    });
+    if (added.length) handleBatchAddObjects(added);
+    showNotice(added.length ? `已加上 ${added.length} 個桌號牌` : '選取的桌子都已有桌號牌');
+  };
+  const changePendingDeviceSystem = (system: DeviceSystem) => {
+    setDeviceSystem(system);
+    setPendingPlacement(pending => pending && [createDevicePoint(system, objects)]);
+  };
+  const placingDevice = pendingPlacement?.length === 1 && pendingPlacement[0].type === ObjectType.DEVICE_POINT ? pendingPlacement[0] : null;
+
+  // Path objects are drawn vertex by vertex; an existing id means "redraw" and keeps every other property.
+  useEffect(() => setPathDraft([]), [pendingPlacement]);
+  const placingPath = pendingPlacement?.length === 1 && isPathType(pendingPlacement[0].type) ? pendingPlacement[0] : null;
+  const commitPath = (points: PathPoint[]) => {
+    if (!placingPath || points.length < pathVertexLimits(placingPath.type).min) return;
+    const [origin] = points;
+    const updates = {
+      position: { x: origin.x, y: 0, z: origin.z },
+      rotation: { x: 0, y: 0, z: 0 },
+      points: points.map(point => ({ x: point.x - origin.x, z: point.z - origin.z })),
+    };
+    if (objects.some(object => object.id === placingPath.id)) {
+      updateObject(placingPath.id, updates);
+      setSelectedIds(new Set([placingPath.id]));
+    } else {
+      setSelectedIds(handleBatchAddObjects([{ ...placingPath, ...updates }]));
+    }
     setPendingPlacement(null);
+  };
+  const commitOutline = (points: PathPoint[]) => {
+    if (points.length < MIN_OUTLINE_POINTS) return;
+    setHall(previous => withOutline(previous, points));
+    setDrawingOutline(false);
+    setPathDraft([]);
+  };
+  const beginOutlineDrawing = () => {
+    cancelEditing();
+    if (!docked) setPanelOpen(false);
+    setSelectedIds(new Set());
+    drawing.setIsDrawMode(false);
+    setPathDraft([]);
+    setDrawingOutline(true);
+  };
+  const pathDrawing = placingPath ? {
+    color: placingPath.color,
+    vertices: pathDraft,
+    snapStep,
+    onAdd: (point: PathPoint) => {
+      const next = [...pathDraft, point];
+      if (next.length >= pathVertexLimits(placingPath.type).max) commitPath(next);
+      else setPathDraft(next);
+    },
+    onFinish: () => commitPath(pathDraft),
+    onUndo: () => setPathDraft(draft => draft.slice(0, -1)),
+    onClose: CLOSABLE_PATH_TYPES[placingPath.type] ? () => commitPath([...pathDraft, pathDraft[0]]) : undefined,
+  } : drawingOutline ? {
+    color: '#0f172a',
+    vertices: pathDraft,
+    snapStep,
+    closed: true,
+    onAdd: (point: PathPoint) => setPathDraft(draft => [...draft, point]),
+    onFinish: () => commitOutline(pathDraft),
+    onUndo: () => setPathDraft(draft => draft.slice(0, -1)),
+  } : null;
+  const drawingLabel = drawingOutline ? '場地外框' : pendingPlacement ? (pendingPlacement[0].label || getObjectLabel(pendingPlacement[0].type)) : undefined;
+  const handleRedrawPath = (object: BanquetObject) => {
+    cancelEditing();
+    if (!docked) setPanelOpen(false);
+    setSelectedIds(new Set());
+    setEditTool('move');
+    setPendingPlacement([object]);
   };
 
   const duplicateSelected = () => {
@@ -359,6 +473,16 @@ export default function App() {
       {showTrussSheet && (
         <TrussSheetModal objects={objects} onClose={() => setShowTrussSheet(false)} />
       )}
+      {showFloorPlan && (
+        <FloorPlanModal
+          hall={hall}
+          objects={objects}
+          drawings={drawing.drawings}
+          sceneName={sceneIO.sceneName}
+          onChangePlanInfo={planInfo => setHall(previous => ({ ...previous, planInfo }))}
+          onClose={() => setShowFloorPlan(false)}
+        />
+      )}
       {showShortcutHelp && <ShortcutHelpDialog onClose={() => setShowShortcutHelp(false)} />}
 
       {/* Top Toolbar */}
@@ -402,6 +526,7 @@ export default function App() {
         onBackToList={handleBackToList}
         hasTrussStructures={objects.some(obj => obj.type === ObjectType.TRUSS_STRUCTURE)}
         onOpenTrussSheets={() => setShowTrussSheet(true)}
+        onOpenFloorPlan={() => { cancelEditing(); setShowFloorPlan(true); }}
       />
       {toast && <div role={toast.error ? 'alert' : 'status'} className={`fixed top-16 right-4 left-4 sm:left-auto z-[70] flex max-w-lg items-center gap-3 rounded-xl bg-white px-4 py-3 text-sm shadow-lg ring-1 ${toast.error ? 'text-red-700 ring-red-200' : 'text-slate-900 ring-slate-200'}`}>
         <span>{toast.message}</span><button className="ui-icon-btn shrink-0" aria-label="關閉" onClick={() => setToast(null)}>✕</button>
@@ -450,6 +575,7 @@ export default function App() {
             pendingPlacement={pendingPlacement}
             onPlace={placePending}
             onCancel={cancelEditing}
+            pathDrawing={pathDrawing}
             handleBatchUpdate={handleBatchUpdate}
             objectRefs={objectRefs}
           />
@@ -458,9 +584,12 @@ export default function App() {
                 tool={editTool} setTool={tool => { cancelEditing(); setEditTool(tool); }}
                 snapStep={snapStep} setSnapStep={setSnapStep}
                 selectedCount={selectedIds.size}
-                isPlacing={pendingPlacement !== null}
-                placementLabel={pendingPlacement ? (pendingPlacement[0].label || getObjectLabel(pendingPlacement[0].type)) : ''}
+                isPlacing={pendingPlacement !== null || drawingOutline}
+                placementLabel={drawingLabel ?? ''}
                 onCancel={cancelEditing} busy={isDragging}
+                path={pathDrawing ? { vertices: pathDraft.length, min: placingPath ? pathVertexLimits(placingPath.type).min : MIN_OUTLINE_POINTS, closed: drawingOutline, loop: !!placingPath && !!CLOSABLE_PATH_TYPES[placingPath.type], onFinish: pathDrawing.onFinish, onUndo: pathDrawing.onUndo } : undefined}
+                deviceSystem={placingDevice ? { value: placingDevice.system ?? 'other', onChange: changePendingDeviceSystem } : undefined}
+                placementHint={pendingPlacement?.[0]?.type === ObjectType.TABLE_NUMBER ? (pendingPlacement[0].plateStyle === 'floor' ? '點擊地面放置；連續放置，Esc 結束' : '點擊桌面放置，自動帶入桌號；連續放置，Esc 結束') : undefined}
                 onDuplicate={duplicateSelected} onDelete={deleteSelected}
               />
           )}
@@ -483,6 +612,7 @@ export default function App() {
           deleteObject={deleteObject}
           panelOpen={panelOpen}
           setPanelOpen={setPanelOpen}
+          onDrawOutline={beginOutlineDrawing}
         >
           <PropertiesPanel
             selectedIds={selectedIds}
@@ -494,6 +624,8 @@ export default function App() {
             handleRemoveStair={handleRemoveStair}
             handleUpdateStair={handleUpdateStair}
             onEditTrussStructure={handleEditTrussStructure}
+            onRedrawPath={handleRedrawPath}
+            onAddTableNumbers={addTableNumbers}
           />
         </Sidebar>
       </div>
@@ -504,7 +636,7 @@ export default function App() {
         isDrawMode={drawing.isDrawMode}
         selectedIds={selectedIds}
         objects={objects}
-        placementLabel={pendingPlacement ? (pendingPlacement[0].label || getObjectLabel(pendingPlacement[0].type)) : undefined}
+        placementLabel={drawingLabel}
       />
       </EditorErrorBoundary>
     </div>

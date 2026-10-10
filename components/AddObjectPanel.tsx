@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { ObjectType } from '../types';
+import { isPathType } from '../planning';
 import { OBJECT_TYPE_META, OBJECT_GROUPS, getObjectLabel } from './objectTypeMeta';
 import type { ObjectGroup } from './objectTypeMeta';
 import { BottomSheet } from './ui/BottomSheet';
@@ -26,11 +27,11 @@ export const AddObjectPanel: React.FC<AddObjectPanelProps> = ({ isOpen, setIsOpe
   };
   if (!isOpen) return null;
   const content = (mobile: boolean) => <div className="space-y-4 p-4">
-    <div className="ui-segmented flex w-full" role="tablist" aria-label="物件分類">
-      {OBJECT_GROUPS.map(item => <button type="button" key={item.id} role="tab" aria-selected={group === item.id} className="ui-segment min-w-0 flex-1 px-2" onClick={() => setGroup(item.id)}>{item.label}</button>)}
+    <div className="ui-segmented grid w-full grid-cols-4" role="tablist" aria-label="物件分類">
+      {OBJECT_GROUPS.map(item => <button type="button" key={item.id} role="tab" aria-selected={group === item.id} className="ui-segment min-w-0 px-1" onClick={() => setGroup(item.id)}>{item.label}</button>)}
     </div>
     <p className={`text-xs leading-relaxed ${placingType ? 'text-blue-700' : 'text-slate-500'}`}>
-      {placingType ? `放置中：${getObjectLabel(placingType)}・點擊地面放置，Esc 取消` : '點選後在場景中放置'}
+      {placingType ? (isPathType(placingType) ? `繪製中：${getObjectLabel(placingType)}・點擊地面加節點，Enter 完成，Esc 取消` : `放置中：${getObjectLabel(placingType)}・點擊地面放置，Esc 取消`) : '點選後在場景中放置'}
     </p>
     <div className="grid grid-cols-2 gap-3">
       {(Object.entries(OBJECT_TYPE_META) as [ObjectType, typeof OBJECT_TYPE_META[ObjectType]][]).filter(([, meta]) => meta.palette && meta.group === group).map(([type, { Icon, label }]) => <button

@@ -21,7 +21,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1R4ZS6M-80WYhXhMs7fJ-0D
 
 - Edit mode keeps direct object manipulation and the floor grid. View mode adds contact occlusion, ACES tone mapping and clean screenshot output.
 - Day/night lighting uses a locally generated reflection environment; no remote HDR or model downloads are required. Floors and fabrics use small procedural relief textures.
-- Near walls automatically cut away when the camera is outside the hall; indoor views retain the walls. Hidden walls do not intercept picking.
+- Halls are a width × length rectangle or an irregular outline (L shapes, cut corners, octagons, stage alcoves, any polygon). Walls follow every outline edge with mitred corners; walls whose outside faces the camera cut away automatically; indoor views retain the walls. Hidden walls do not intercept picking.
 - Overview, top and side views fit the hall and viewport. Stage view uses the stage's position, dimensions and rotation; an empty hall falls back to an overview.
 - Dragging or zooming takes over the camera immediately. Clicking a view preset again restores that framing. Labels are hidden by default in View and can be toggled in the toolbar.
 - Existing scene data, object dimensions/colors, API formats and truss engineering calculations are unchanged. Presentation preferences are not saved into scene data.
@@ -30,7 +30,7 @@ Lighting is a visual approximation, not a photometric simulation. Fixture spotli
 
 ### Equipment model library
 
-- All 28 object types, including legacy speaker/light types, use local procedural geometry; no external model downloads or branded assets are required.
+- All 48 object types, including legacy speaker/light types, use local procedural geometry; no external model downloads or branded assets are required. Signage text (easel board, kiosk header, number plates, rating plates, the 備 card) is drawn on local canvas textures.
 - Round and rectangular tables have draped cloth, curved upholstered chair backs and tubular frames. Chairs use three instanced meshes per table while remaining selectable as part of that table.
 - Stage decks retain their exact configured top height, with pleated skirts, optional backdrop drapes and stairs on all four sides. Screens, LED walls, dance floors and furniture retain their existing dimension/color fields.
 - Audio cabinets use shaped shells and aligned perforated grilles; lighting fixtures have separate housings, yokes, lenses and stands. Head tilt does not tilt floor supports.
@@ -38,6 +38,23 @@ Lighting is a visual approximation, not a photometric simulation. Fixture spotli
 - Truss sections merge rounded tubes and braces into one mesh. Preset joints use the existing connector dimension; engineering calculations, segment lists and BOM rules are unchanged.
 - Dimension-dependent geometries and selection outlines release replaced GPU resources. Shared fixed-size geometry remains reusable across objects and placement previews.
 - These are refined planning models, not manufacturer CAD or structural/load certification.
+
+### Banquet planning objects
+
+- **Seating:** round tables take a seat count override (0–16, 「恢復預設」 returns to the size default), rectangular tables seat both sides, one side or none, and both mark child high chairs and vegetarian meals (green markers). A standby table (備桌) carries a 備 card. The status bar quotes the plan the way banquet sheets do — `15 桌＋備 1・151 位（兒童椅 2）・素 1` — counting only seated, non-standby tables.
+- **Venue structure:** loose chairs (banquet or child), doors (single/double, with plan-style swing arcs), columns (square/round) and partition walls (隔間牆: thickness and height, drawn like a path; clicking the first vertex closes a room loop with mitred corners). While placing, a door lands in the nearest wall — hall outline (slanted and inner-corner walls included) or partition, facing the side it was placed from; a column snaps flush to a wall face when placed within 0.8 m of it.
+- **Hall shape:** 場地設定 → 尺寸與形狀 switches between 矩形 and 不規則. An irregular hall starts from a template (L 形, 斜角, 八角, 舞台凸出 — sized to the current outline box), is drawn corner by corner on the floor (「在場景中描繪外框」: click the first corner or press Enter to close), or is typed as corner coordinates with per-wall lengths, insert and delete. The panel shows the outline box, floor area and wall count and warns when walls cross. Replacing a custom outline asks first, because hall edits are not in the undo history.
+- **Decor and vendors:** champagne tower (3–7 tiers), easel (board text = name), equipment kiosk (photo print, cocktail machine; header text = name), table number plate (桌號牌: tabletop stand or floor sign; plate text = name).
+- **Table number plates:** placing a tabletop plate snaps it to the centre of the table under the pointer, turned with the table, and copies the table's name as its number; placement continues table after table until Esc. A selected table (or several) offers 「加上桌號牌」 for the tables that have none. A plate standing on a table moves, rotates, duplicates and is deleted with it; the floor plan prints the table's number once instead of a separate plate symbol.
+- **Power:** generator (kVA), distribution box, 110V/220V outlet points, cable runs and cable ramps.
+- **Catering:** service station, beverage cart, bar counter.
+- **Plan annotations:** area markers (rectangle/ellipse), flow arrows (新人進場/出菜/賓客/撤場 presets), dimension lines that print their measured length unless named, and device points (設備點位).
+- **Device points:** network, door plate, Wi-Fi AP, camera, POS, display/TV, access control, audio and other systems, each with its own colour and symbol in 3D and on the plan. The code is the point's name; placing points stays in placement mode and numbers them in sequence (choose the system in the floating bar), continuing the prefix the scene already uses for that system (e.g. MN-32 after an imported MN-31). Height Y can hold the mounting height.
+- Cable runs, flow arrows, dimensions and partition walls are drawn: click the floor to add vertices, Shift locks 45°, Enter or clicking the last vertex finishes, Backspace removes a vertex, Esc cancels. 「重新繪製」 redraws an existing path and keeps its other properties. Every object has a 備註 shown under its label and in the floor plan notes (device point notes go to the point list instead).
+
+### Floor plan export
+
+更多 → 平面圖 renders a top-down, to-scale SVG of the hall: tables with chairs, child/vegetarian markers and standby styling, partition walls, doors with swings, columns, cable runs with total length, flow arrows, dimensions, zones, device points with codes and freehand drawings. Irregular halls are drawn from their outline with every wall's length; the title block reports the outline box, wall count and floor area. Objects outside the hall (foyer) extend the sheet. The title block (標題/場地/日期/版本/備註) is stored with the hall as `planInfo`; seating, power and device-point summaries, a scale bar, per-object notes and a legend of the symbols in use (device systems with counts) are generated. 點位系統 checkboxes limit the sheet to chosen systems (one sheet per system); 下載點位清單 CSV exports code, system, world X/Z, height and note. Download SVG or 2× PNG, or print / save as PDF.
 
 ## Direct scene editing
 
@@ -66,8 +83,8 @@ Lighting is a visual approximation, not a photometric simulation. Fixture spotli
 
 UI rules (type scale, colours, components, responsive behaviour) live in `docs/UI-DESIGN-SYSTEM.md`; Tailwind is compiled at build time.
 
-- **Toolbar:** scene name, 編輯｜預覽, move/rotate/height tools and snapping (≥1024px), 更多 menu (import, export JSON, 結構圖, 批次新增, shortcut help; undo/redo below 640px), save indicator (emerald saved, amber unsaved, red retry), 新增/屬性 panel toggles.
-- **Panels:** the add palette (場地/音響/燈光/其他 tabs) and the properties panel dock at ≥1024px and become bottom sheets below it; only one sheet opens at a time. With a selection, its properties come first and 場地設定 collapses.
+- **Toolbar:** scene name, 編輯｜預覽, move/rotate/height tools and snapping (≥1024px), 更多 menu (import, export JSON, 平面圖, 結構圖, 批次新增, shortcut help; undo/redo below 640px), save indicator (emerald saved, amber unsaved, red retry), 新增/屬性 panel toggles.
+- **Panels:** the add palette (場地/佈置/音響/燈光/電力/餐飲/圖面/其他 tabs) and the properties panel dock at ≥1024px and become bottom sheets below it; only one sheet opens at a time. With a selection, its properties come first and 場地設定 collapses.
 - **Floating bar:** placement and selection actions (再製, 刪除) appear at the bottom of the canvas; below 1024px it also holds the edit tools, and in 預覽 the view presets.
 - **預覽:** dark presentation chrome; 全景/俯視/舞台/側面 frame the projected bounds of the hall or stage; object labels stay 12px at any zoom.
 - **Lists:** leaving a scene stores a list thumbnail when it has none or was edited; the home page shows the three most recently updated scenes. Card actions are visible on touch and keyboard focus.

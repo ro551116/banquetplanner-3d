@@ -4,7 +4,7 @@ import type { BanquetObject, HallConfig } from '../types';
 import { THEMES } from '../constants';
 import type { Theme } from '../constants';
 import { ObjectListPanel } from './ObjectListPanel';
-import { NumberField } from './ui/NumberField';
+import { HallShapeEditor } from './HallShapeEditor';
 import { BottomSheet } from './ui/BottomSheet';
 import { DOCKED_PANELS_QUERY, useMediaQuery } from './ui/useMediaQuery';
 
@@ -18,10 +18,12 @@ interface SidebarProps {
   deleteObject: (id: string) => void;
   panelOpen: boolean;
   setPanelOpen: (v: boolean) => void;
+  /** Starts drawing the hall outline on the floor. */
+  onDrawOutline: () => void;
   children: React.ReactNode;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ mode, hall, setHall, objects, selectedIds, setSelectedIds, deleteObject, panelOpen, setPanelOpen, children }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ mode, hall, setHall, objects, selectedIds, setSelectedIds, deleteObject, panelOpen, setPanelOpen, onDrawOutline, children }) => {
   const docked = useMediaQuery(DOCKED_PANELS_QUERY);
   const hasSelection = selectedIds.size > 0;
   const [hallExpanded, setHallExpanded] = useState(!hasSelection);
@@ -47,14 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mode, hall, setHall, objects, 
           場地設定<ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${hallExpanded ? '' : '-rotate-90'}`} />
         </button>
         {hallExpanded && <div className="space-y-6">
-          <section className="space-y-3">
-            <h3 className="ui-section-title">尺寸</h3>
-            <div className="grid grid-cols-3 gap-3">
-              <NumberField label="寬" value={hall.width} onChange={width => setHall(prev => ({ ...prev, width }))} unit="m" min={1} max={200} step={0.5} precision={1} />
-              <NumberField label="長" value={hall.length} onChange={length => setHall(prev => ({ ...prev, length }))} unit="m" min={1} max={200} step={0.5} precision={1} />
-              <NumberField label="高" value={hall.height} onChange={height => setHall(prev => ({ ...prev, height }))} unit="m" min={1} max={200} step={0.5} precision={1} />
-            </div>
-          </section>
+          <HallShapeEditor hall={hall} setHall={setHall} onDrawOutline={onDrawOutline} />
           <section className="space-y-3">
             <h3 className="ui-section-title">主題</h3>
             <div className="grid grid-cols-4 gap-3">

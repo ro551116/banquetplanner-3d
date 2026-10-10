@@ -2,6 +2,7 @@ import { useRef, useEffect } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { HallConfig, BanquetObject, ObjectType } from '../types';
+import { getHallBounds } from '../planning';
 
 interface CameraRigProps {
   viewIndex: number;
@@ -25,9 +26,10 @@ interface CameraDestination {
 // Fit actual corners in camera space instead of guessing a distance from room width.
 // `aspect` is the live canvas size from R3F, so a resize in the same commit (panels opening, View mode) fits the new viewport.
 function framing(index: number, camera: THREE.PerspectiveCamera, aspect: number, hall: HallConfig, objects: BanquetObject[]): CameraDestination {
-  const target = new THREE.Vector3(0, hall.height / 2, 0);
+  const bounds = getHallBounds(hall);
+  const target = new THREE.Vector3(bounds.centerX, hall.height / 2, bounds.centerZ);
   const direction = new THREE.Vector3(1.15, 0.95, 1.35).normalize();
-  const half = new THREE.Vector3(hall.width / 2, hall.height / 2, hall.length / 2);
+  const half = new THREE.Vector3(bounds.width / 2, hall.height / 2, bounds.length / 2);
   const rotation = new THREE.Euler();
   if (index === 1) direction.set(0, 1, 0.0001).normalize();
   if (index === 3) direction.set(1, 0.38, 0.12).normalize();
@@ -120,7 +122,7 @@ export function CameraRig({ viewIndex, viewRequest, hall, objects }: CameraRigPr
       destination.current = next;
     }
     invalidate();
-  }, [controls, camera, invalidate, viewIndex, viewRequest, size.width, size.height, hall.width, hall.length, hall.height]);
+  }, [controls, camera, invalidate, viewIndex, viewRequest, size.width, size.height, hall.width, hall.length, hall.height, hall.outline]);
 
   useFrame((_, delta) => {
     const next = destination.current;

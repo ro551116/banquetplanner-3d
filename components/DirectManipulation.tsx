@@ -3,6 +3,7 @@ import { useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { BanquetObject } from '../types';
 import { EditTool, EditorSession } from '../interaction';
+import { attachedTableNumbers } from '../planning';
 
 interface ObjectEvents {
   onObjectPointerDown: (id: string, event: ThreeEvent<PointerEvent>) => void;
@@ -155,10 +156,12 @@ export function DirectManipulation(props: DirectManipulationProps) {
       if (!state.enabled || event.button !== 0 || gesture || event.isPrimary === false) return;
       event.stopPropagation();
       const ids = state.selectedIds.has(id) && !event.shiftKey ? state.selectedIds : new Set([id]);
+      // Plates standing on a dragged table ride along live (and are committed with it).
+      const followers = attachedTableNumbers(state.objects, ids);
       const initial: InitialObject[] = [];
       for (const object of state.objects) {
         const group = state.objectRefs.current[object.id];
-        if (ids.has(object.id) && group) initial.push({ object, group, position: group.position.clone(), rotation: group.rotation.clone() });
+        if ((ids.has(object.id) || followers.has(object.id)) && group) initial.push({ object, group, position: group.position.clone(), rotation: group.rotation.clone() });
       }
       const primary = initial.find(item => item.object.id === id);
       if (!primary) return;
@@ -170,8 +173,9 @@ export function DirectManipulation(props: DirectManipulationProps) {
         });
       } else if (!state.selectedIds.has(id)) state.setSelectedIds(new Set([id]));
       const center = new THREE.Vector3();
-      for (const item of initial) center.add(item.position);
-      center.divideScalar(initial.length);
+      const pivots = initial.filter(item => ids.has(item.object.id));
+      for (const item of pivots) center.add(item.position);
+      center.divideScalar(pivots.length);
       const grab = event.point.clone();
       const height = Math.max(1, canvas.clientHeight);
       const unitsPerPixel = camera instanceof THREE.PerspectiveCamera
