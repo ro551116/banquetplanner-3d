@@ -9,7 +9,7 @@ npm run dev        # Start dev server on port 3000
 npm run dev:server # Scene API + built dist on port 3001 (PORT, DATA_DIR)
 npm run build      # Production build to /dist
 npm run typecheck  # tsc --noEmit
-npm test           # node:test via tsx (trussConfig, sceneData, planning, floorPlan, hallPresets)
+npm test           # node:test via tsx (trussConfig, sceneData, planning, floorPlan, hallPresets, trussTemplates)
 ```
 
 No linter or formatter is configured.
@@ -72,6 +72,7 @@ Core types in `types.ts`:
 | `components/AdvancedAddModal.tsx` | 批次新增 (quick counts / table grid) |
 | `constants.ts` | Theme presets, initial hall config, default values |
 | `hallPresets.ts` / `components/HallPresetPanel.tsx` | Hall presets (廳房): build/apply rules (pure), 場地設定 panel; API client `services/hallPresetsApi.ts` |
+| `trussTemplates.ts` / `components/TrussPreview3D.tsx` | Truss builder 常用樣式 (pure) and the shared 3D preview: builder panel and the Truss 工作台 3D dialog |
 
 ### Persistence
 

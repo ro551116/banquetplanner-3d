@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
+  Box,
   CalendarDays,
   Clock,
   Copy,
@@ -21,6 +22,7 @@ import {
 } from '../trussConfig';
 import { trussStudioApi, type TrussStudioEntry, type TrussStudioEvent } from '../services/trussStudioApi';
 import { TrussBuilderModal } from './TrussBuilderModal';
+import { Truss3DDialog } from './TrussPreview3D';
 import {
   downloadSvgAsPng,
   safeFilename,
@@ -74,6 +76,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
   const [renameValue, setRenameValue] = useState('');
   const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
   const [navigatingBack, setNavigatingBack] = useState(false);
+  const [viewing3dId, setViewing3dId] = useState<string | null>(null);
 
   const inFlightCount = useRef(0);
   const opSeq = useRef(0);
@@ -227,6 +230,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
   const editingEntry = builder?.mode === 'edit'
     ? structures.find(entry => entry.id === builder.id)
     : undefined;
+  const viewing3dEntry = viewing3dId ? structures.find(entry => entry.id === viewing3dId) : undefined;
 
   const saveText = {
     idle: '',
@@ -763,6 +767,13 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
               actions={(
                 <>
                   <button
+                    onClick={() => setViewing3dId(entry.id)}
+                    className="ui-btn-secondary"
+                  >
+                    <Box className="w-3.5 h-3.5" />
+                    3D
+                  </button>
+                  <button
                     onClick={() => setBuilder({ mode: 'edit', id: entry.id })}
                     disabled={mutationDisabled}
                     className="ui-btn-secondary"
@@ -810,6 +821,14 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
           onClose={() => setBuilder(null)}
           onSubmit={handleSubmit}
           submitLabel={builder.mode === 'new' ? '新增結構' : '儲存結構'}
+        />
+      )}
+
+      {viewing3dEntry && (
+        <Truss3DDialog
+          config={viewing3dEntry.config}
+          quantity={viewing3dEntry.config.quantity}
+          onClose={() => setViewing3dId(null)}
         />
       )}
     </div>

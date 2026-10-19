@@ -25,7 +25,9 @@ import {
   TRUSS_SEGMENT_COLORS,
   TRUSS_SEGMENT_LENGTHS,
 } from '../trussConfig';
+import { formatTrussSize, TRUSS_TEMPLATES, TrussTemplate } from '../trussTemplates';
 import { TrussDiagram } from './TrussDiagram';
+import { TrussPreview3D } from './TrussPreview3D';
 
 interface TrussBuilderModalProps {
   initialConfig?: TrussStructureConfig;
@@ -33,6 +35,17 @@ interface TrussBuilderModalProps {
   onSubmit: (config: TrussStructureConfig) => void | Promise<void>;
   submitLabel?: string;
   lockQuantity?: boolean;
+}
+
+type PreviewMode = '3D' | '2D';
+
+interface TrussBuilderBodyProps extends TrussBuilderModalProps {
+  isEditing: boolean;
+  /** JSON of the config as first opened; survives template switches so closing still asks before discarding. */
+  openedConfigRef: React.MutableRefObject<string | null>;
+  preview: PreviewMode;
+  onPreviewChange: (mode: PreviewMode) => void;
+  onApplyTemplate: (config: TrussStructureConfig) => void;
 }
 
 const KIND_OPTIONS: Array<{ kind: TrussStructureKind; title: string; description: string }> = [
@@ -61,7 +74,9 @@ const clampInt = (value: number, fallback: number, min = 1, max = Infinity) => {
   return Math.min(max, Math.max(min, Math.round(value)));
 };
 
-const KindSketch = ({ kind }: { kind: TrussStructureKind }) => (
+const TEMPLATE_SIZES = TRUSS_TEMPLATES.map(template => formatTrussSize(template.build(), '×'));
+
+const KindSketch = ({ kind }: { kind: TrussStructureKind | 'FRAME' }) => (
   <svg viewBox="0 0 96 60" className="w-full h-14" aria-hidden="true">
     <rect width="96" height="60" fill="transparent" />
     {kind === 'TOWER' && (
@@ -133,6 +148,22 @@ const KindSketch = ({ kind }: { kind: TrussStructureKind }) => (
         <rect x="56" y="28" width="24" height="8" fill="#d8dde6" stroke="#111" />
         <rect x="10" y="52" width="24" height="5" fill="#111" />
         <rect x="48" y="52" width="24" height="5" fill="#111" />
+      </>
+    )}
+    {kind === 'FRAME' && (
+      <>
+        <rect x="30" y="8" width="7" height="38" fill="#eef1f5" stroke="#111" />
+        <rect x="76" y="8" width="7" height="38" fill="#eef1f5" stroke="#111" />
+        <rect x="30" y="6" width="53" height="7" fill="#eef1f5" stroke="#111" />
+        <rect x="25" y="46" width="17" height="3" fill="#111" />
+        <rect x="71" y="46" width="17" height="3" fill="#111" />
+        <path d="M14 16 L30 6 L37 6 L22 16 Z" fill="#d8dde6" stroke="#111" />
+        <path d="M62 16 L76 6 L83 6 L70 16 Z" fill="#d8dde6" stroke="#111" />
+        <rect x="14" y="16" width="8" height="36" fill="#d8dde6" stroke="#111" />
+        <rect x="62" y="16" width="8" height="36" fill="#d8dde6" stroke="#111" />
+        <rect x="14" y="16" width="56" height="8" fill="#d8dde6" stroke="#111" />
+        <rect x="8" y="52" width="20" height="5" fill="#111" />
+        <rect x="56" y="52" width="20" height="5" fill="#111" />
       </>
     )}
   </svg>
@@ -322,12 +353,17 @@ const createCustomMember = (
   basePlate: orientation === 'VERTICAL' && origin.yCm === 0 ? true : undefined,
 });
 
-export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
+const TrussBuilderBody: React.FC<TrussBuilderBodyProps> = ({
   initialConfig,
   onClose,
   onSubmit,
   submitLabel,
   lockQuantity = false,
+  isEditing,
+  openedConfigRef,
+  preview,
+  onPreviewChange,
+  onApplyTemplate,
 }) => {
   const initial = useMemo(() => cloneTrussConfig(initialConfig || createDefaultTrussConfig()), [initialConfig]);
   const initialDims = useMemo(() => getTrussDimensions(initial), [initial]);
@@ -400,10 +436,9 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
   const titleInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
+  // preventScroll: the 常用樣式 row above the name field stays in view when the builder opens.
   useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    titleInputRef.current?.focus();
-    return () => previousFocus?.focus();
+    titleInputRef.current?.focus({ preventScroll: true });
   }, []);
 
   const effectiveQuantity = lockQuantity ? 1 : clampInt(quantity, 1, 1);
@@ -435,14 +470,22 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
       groupId: initial.groupId,
     };
 
-  const actualDims = getTrussDimensions(workingConfig);
-  const isEditing = Boolean(initialConfig);
-
   // Snapshot of the config as opened: closing with edits asks first, so a stray Esc can't discard a long draft.
-  const openedConfigRef = useRef<string | null>(null);
   const currentConfigJson = JSON.stringify(workingConfig);
   if (openedConfigRef.current === null) openedConfigRef.current = currentConfigJson;
   const isDirty = currentConfigJson !== openedConfigRef.current;
+
+  // A template keeps the name and quantity, so only structural edits since this draft loaded (opened, or the last
+  // template) ask before being replaced.
+  const structureJson = JSON.stringify({ ...workingConfig, title: undefined, quantity: undefined });
+  const loadedStructureRef = useRef(structureJson);
+  const applyTemplate = (template: TrussTemplate) => {
+    if (structureJson !== loadedStructureRef.current && !window.confirm(`套用「${template.title}」會取代目前的桿件配段，確定嗎？`)) return;
+    const next = template.build();
+    const typedTitle = title.trim();
+    const keepTitle = typedTitle !== '' && typedTitle !== 'Truss 結構' && !TRUSS_TEMPLATES.some(item => item.title === typedTitle);
+    onApplyTemplate({ ...next, title: keepTitle ? title : next.title, quantity: effectiveQuantity, groupId: initial.groupId });
+  };
   const requestClose = () => {
     if (isSubmitting) return;
     if (isDirty && !window.confirm('放棄尚未儲存的 Truss 變更？')) return;
@@ -876,6 +919,25 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
           className="grid grid-cols-1 lg:grid-cols-[440px_1fr] flex-1 min-h-0 min-w-0 overflow-hidden"
         >
           <div className="overflow-y-auto p-4 space-y-4 border-r border-slate-100">
+            <section className="space-y-1.5" aria-labelledby="truss-template-heading">
+              <h4 id="truss-template-heading" className="ui-label">常用樣式</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {TRUSS_TEMPLATES.map((template, index) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => applyTemplate(template)}
+                    className="rounded-lg border border-slate-200 bg-white p-2 text-left transition-colors hover:border-slate-300 hover:bg-slate-50"
+                  >
+                    <KindSketch kind={template.sketch} />
+                    <div className="text-xs font-semibold text-slate-900">{template.title}</div>
+                    <div className="text-[11px] tabular-nums text-slate-500">{TEMPLATE_SIZES[index]}</div>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <h4 className="ui-label">結構型式</h4>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {KIND_OPTIONS.map(option => (
                 <button
@@ -1090,9 +1152,7 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
                 {kind === 'CUSTOM' ? '桿件座標範圍' : '實際外徑'}
               </div>
               <div className="text-sm font-semibold tabular-nums">
-                {kind === 'TOWER'
-                  ? `H${actualDims.heightCm}`
-                  : `W${actualDims.widthCm} × H${actualDims.heightCm}${actualDims.depthCm !== undefined ? ` × D${actualDims.depthCm || 0}` : ''}`} cm
+                {formatTrussSize(workingConfig)} cm
               </div>
             </div>
 
@@ -1166,14 +1226,27 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
           </div>
 
           <div className="min-h-0 overflow-y-auto bg-slate-100 p-4">
-            <div className="ui-card overflow-hidden">
-              <div className="px-4 py-3">
-                <div className="text-sm font-semibold text-slate-900">2D 結構圖預覽</div>
-                <div className="text-xs text-slate-500 truncate">{formatTrussTitle(workingConfig)}</div>
+            <div className={`ui-card overflow-hidden flex flex-col ${preview === '3D' ? 'lg:h-full' : ''}`}>
+              <div className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-slate-900">{preview === '3D' ? '3D 預覽' : '2D 結構圖預覽'}</div>
+                  <div className="text-xs text-slate-500 truncate">{formatTrussTitle(workingConfig)}</div>
+                </div>
+                <div className="ui-segmented" role="group" aria-label="預覽方式">
+                  {(['3D', '2D'] as const).map(mode => (
+                    <button key={mode} type="button" className="ui-segment" aria-pressed={preview === mode} onClick={() => onPreviewChange(mode)}>
+                      {mode}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="aspect-[16/9]">
-                <TrussDiagram config={workingConfig} />
-              </div>
+              {preview === '3D' ? (
+                <TrussPreview3D config={workingConfig} className="aspect-[16/9] lg:aspect-auto lg:flex-1 lg:min-h-[320px]" />
+              ) : (
+                <div className="aspect-[16/9]">
+                  <TrussDiagram config={workingConfig} />
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1213,5 +1286,30 @@ export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = ({
         </div>
       </div>
     </div>
+  );
+};
+
+/**
+ * A template replaces the whole draft, so the body remounts from it. What must outlive that stays here: focus return
+ * to the opener, the as-opened snapshot for the discard prompt, the preview mode and whether this edits a saved item.
+ */
+export const TrussBuilderModal: React.FC<TrussBuilderModalProps> = props => {
+  const [draft, setDraft] = useState({ config: props.initialConfig, version: 0 });
+  const [preview, setPreview] = useState<PreviewMode>('3D');
+  const openedConfigRef = useRef<string | null>(null);
+  const [opener] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null));
+  useEffect(() => () => opener?.focus(), [opener]);
+
+  return (
+    <TrussBuilderBody
+      key={draft.version}
+      {...props}
+      initialConfig={draft.config}
+      isEditing={Boolean(props.initialConfig)}
+      openedConfigRef={openedConfigRef}
+      preview={preview}
+      onPreviewChange={setPreview}
+      onApplyTemplate={config => setDraft(current => ({ config, version: current.version + 1 }))}
+    />
   );
 };

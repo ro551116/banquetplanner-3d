@@ -8,7 +8,7 @@ import { cleanPolyline, offsetPolyline, prismGeometry, wallBands } from './model
 import { TEXTURE_ANISOTROPY } from './models/details';
 
 // Generated locally: the viewport and exported images do not depend on an HDR CDN.
-function StudioReflections({ night }: { night: boolean }) {
+export function StudioReflections({ night }: { night: boolean }) {
   const { gl, scene, invalidate } = useThree();
   useEffect(() => {
     const room = new RoomEnvironment();
