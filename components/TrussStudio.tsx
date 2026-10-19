@@ -22,7 +22,8 @@ import {
 } from '../trussConfig';
 import { trussStudioApi, type TrussStudioEntry, type TrussStudioEvent } from '../services/trussStudioApi';
 import { TrussBuilderModal } from './TrussBuilderModal';
-import { Truss3DDialog } from './TrussPreview3D';
+import { captureTruss3DViews, Truss3DDialog } from './TrussPreview3D';
+import { downloadBlob } from './FloorPlanModal';
 import {
   downloadSvgAsPng,
   safeFilename,
@@ -77,6 +78,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
   const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
   const [navigatingBack, setNavigatingBack] = useState(false);
   const [viewing3dId, setViewing3dId] = useState<string | null>(null);
+  const [exportingAll, setExportingAll] = useState(false);
 
   const inFlightCount = useRef(0);
   const opSeq = useRef(0);
@@ -426,10 +428,10 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
     }
   };
 
-  const getDownloadFilename = (entry: TrussStudioEntry) => {
+  const getDownloadFilename = (entry: TrussStudioEntry, suffix = '') => {
     const eventName = selectedEvent?.name.trim() || '未命名場次';
     const title = formatTrussTitle(entry.config, entry.config.quantity);
-    return `${safeFilename(`${eventName}-${title}`)}.png`;
+    return `${safeFilename(`${eventName}-${title}`)}${suffix}.png`;
   };
 
   const handleDownloadOne = async (entry: TrussStudioEntry) => {
@@ -439,9 +441,22 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
     await downloadSvgAsPng(svg, getDownloadFilename(entry));
   };
 
+  // Every structure's 2D sheet first (as before), then its default 3D view as `<same name>-3D.png`.
   const handleDownloadAll = async () => {
-    for (const entry of structures) {
-      await handleDownloadOne(entry);
+    const entries = structures;
+    setExportingAll(true);
+    try {
+      for (const entry of entries) {
+        await handleDownloadOne(entry);
+      }
+      await captureTruss3DViews(entries.map(entry => entry.config), (png, index) => {
+        downloadBlob(png, getDownloadFilename(entries[index], '-3D'));
+      });
+    } catch (err) {
+      console.error('Truss PNG export failed:', err);
+      setError('PNG 輸出失敗，請再試一次。');
+    } finally {
+      setExportingAll(false);
     }
   };
 
@@ -700,11 +715,12 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
             </button>
             <button
               onClick={handleDownloadAll}
-              disabled={structures.length === 0}
+              disabled={structures.length === 0 || exportingAll}
               className="ui-btn-secondary"
+              title="每個結構各輸出 2D 結構圖與 3D 圖"
             >
               <Download className="w-3.5 h-3.5" />
-              全部 PNG
+              {exportingAll ? '輸出中…' : '全部 PNG'}
             </button>
             <button
               onClick={() => window.print()}
@@ -828,6 +844,7 @@ export const TrussStudio: React.FC<TrussStudioProps> = ({ onBack }) => {
         <Truss3DDialog
           config={viewing3dEntry.config}
           quantity={viewing3dEntry.config.quantity}
+          filename={getDownloadFilename(viewing3dEntry, '-3D')}
           onClose={() => setViewing3dId(null)}
         />
       )}

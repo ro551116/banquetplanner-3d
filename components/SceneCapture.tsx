@@ -11,8 +11,8 @@ export const TOUCH_SCREENSHOT_LONG_EDGE = 2560;
 
 interface SceneCaptureBridgeProps {
   captureRef: MutableRefObject<SceneCapture | null>;
-  /** Mounted only in VIEW mode; without it the scene renders straight to the canvas. */
-  composerRef: RefObject<EffectComposer>;
+  /** The scene's VIEW-mode composer; without one (EDIT mode, the truss preview) the scene renders straight to the canvas. */
+  composerRef?: RefObject<EffectComposer>;
   longEdge: number;
 }
 
@@ -27,7 +27,7 @@ export function SceneCaptureBridge({ captureRef, composerRef, longEdge }: SceneC
     captureRef.current = async () => {
       const { gl, scene, camera, size, invalidate } = get();
       if (!size.width || !size.height) throw new Error('畫面尚未就緒');
-      const composer = composerRef.current;
+      const composer = composerRef?.current;
       const screenRatio = gl.getPixelRatio();
       const autoClear = gl.autoClear;
       const edge = Math.min(longEdge, gl.capabilities.maxTextureSize);

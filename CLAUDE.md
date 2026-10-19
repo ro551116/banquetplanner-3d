@@ -72,7 +72,7 @@ Core types in `types.ts`:
 | `components/AdvancedAddModal.tsx` | 批次新增 (quick counts / table grid) |
 | `constants.ts` | Theme presets, initial hall config, default values |
 | `hallPresets.ts` / `components/HallPresetPanel.tsx` | Hall presets (廳房): build/apply rules (pure), 場地設定 panel; API client `services/hallPresetsApi.ts` |
-| `trussTemplates.ts` / `components/TrussPreview3D.tsx` | Truss builder 常用樣式 (pure) and the shared 3D preview: builder panel and the Truss 工作台 3D dialog |
+| `trussTemplates.ts` / `components/TrussPreview3D.tsx` | Truss builder 常用樣式 (pure) and the shared 3D preview: builder panel, Truss 工作台 3D dialog, and `captureTruss3DViews` for 全部 PNG (a bare R3F `createRoot` on a detached canvas; unlike `<Canvas>` it needs `extend(THREE)`) |
 
 ### Persistence
 

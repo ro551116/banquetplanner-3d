@@ -1,12 +1,16 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import React, { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react';
+import { Canvas, createRoot, extend, useThree } from '@react-three/fiber';
 import { ContactShadows, Grid, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
-import { RotateCcw, X } from 'lucide-react';
+import { Image as ImageIcon, RotateCcw, X } from 'lucide-react';
 import { TrussStructureConfig } from '../types';
 import { formatTrussTitle, getTrussDimensions } from '../trussConfig';
 import { TrussStructureModel } from './models/TrussStructure';
 import { StudioReflections } from './SceneEnvironment';
+import { SceneCaptureBridge, SCREENSHOT_LONG_EDGE, TOUCH_SCREENSHOT_LONG_EDGE, type SceneCapture } from './SceneCapture';
+import { downloadBlob } from './FloorPlanModal';
+import { safeFilename } from './TrussSheetContent';
+import { TOUCH_POINTER_QUERY, useMediaQuery } from './ui/useMediaQuery';
 
 interface OrbitControlsLike {
   target: THREE.Vector3;
@@ -64,8 +68,18 @@ function ScaleFigure({ x, z }: { x: number; z: number }) {
   );
 }
 
-function TrussPreviewScene({ config, schematic, resetToken }: { config: TrussStructureConfig; schematic: boolean; resetToken: number }) {
+interface TrussPreviewSceneProps {
+  config: TrussStructureConfig;
+  schematic: boolean;
+  resetToken: number;
+  /** Called each time the camera has been fitted to the structure; the off-screen export waits for it. */
+  onFramed?: () => void;
+}
+
+function TrussPreviewScene({ config, schematic, resetToken, onFramed }: TrussPreviewSceneProps) {
   const group = useRef<THREE.Group>(null);
+  const onFramedRef = useRef(onFramed);
+  onFramedRef.current = onFramed;
   const camera = useThree(state => state.camera);
   const controls = useThree(state => state.controls);
   const aspect = useThree(state => state.size.width / Math.max(1, state.size.height));
@@ -100,6 +114,7 @@ function TrussPreviewScene({ config, schematic, resetToken }: { config: TrussStr
     orbit.update();
     setFraming({ personX, personZ, floorSize: Math.ceil(radius * 4) });
     invalidate();
+    onFramedRef.current?.();
     // aspect is read but not a dependency: resizing the panel alone keeps the user's view.
   }, [sizeKey, controls, camera, resetToken, invalidate]);
 
@@ -133,12 +148,32 @@ function TrussPreviewScene({ config, schematic, resetToken }: { config: TrussStr
 interface TrussPreview3DProps {
   config: TrussStructureConfig;
   className?: string;
+  /** PNG name for 截圖; defaults to the structure title. */
+  filename?: string;
 }
 
 /** Orbitable 3D view of one truss structure with a 1 m floor grid and a 170 cm figure for scale. */
-export function TrussPreview3D({ config, className = '' }: TrussPreview3DProps) {
+export function TrussPreview3D({ config, className = '', filename }: TrussPreview3DProps) {
   const [schematic, setSchematic] = useState(false);
   const [resetToken, setResetToken] = useState(0);
+  const [capture, setCapture] = useState<'idle' | 'busy' | 'failed'>('idle');
+  const captureRef = useRef<SceneCapture | null>(null);
+  const touch = useMediaQuery(TOUCH_POINTER_QUERY);
+
+  // Same capture as the scene's 截圖: the current view re-rendered at 3840 px on the long edge (2560 px on touch).
+  const takeScreenshot = async () => {
+    const run = captureRef.current;
+    if (!run) return;
+    setCapture('busy');
+    try {
+      downloadBlob(await run(), filename ?? `${safeFilename(formatTrussTitle(config))}-3D.png`);
+      setCapture('idle');
+    } catch (error) {
+      console.error('Truss 3D screenshot failed:', error);
+      setCapture('failed');
+    }
+  };
+
   return (
     <div className={`relative bg-[#eef1f5] ${className}`}>
       <Canvas
@@ -149,16 +184,31 @@ export function TrussPreview3D({ config, className = '' }: TrussPreview3DProps) 
         aria-label={`${formatTrussTitle(config)} 3D 預覽`}
       >
         <TrussPreviewScene config={config} schematic={schematic} resetToken={resetToken} />
+        <SceneCaptureBridge captureRef={captureRef} longEdge={touch ? TOUCH_SCREENSHOT_LONG_EDGE : SCREENSHOT_LONG_EDGE} />
       </Canvas>
       <div className="absolute right-2 top-2 flex items-center gap-2">
         <label className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/90 px-2 py-1 text-xs text-slate-700 shadow-sm">
           <input type="checkbox" checked={schematic} onChange={event => setSchematic(event.target.checked)} className="h-3.5 w-3.5 accent-blue-600" />
           段長色碼
         </label>
+        <button
+          type="button"
+          onClick={takeScreenshot}
+          disabled={capture === 'busy'}
+          className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white/90 px-2 py-1 text-xs text-slate-700 shadow-sm hover:bg-white disabled:opacity-50"
+        >
+          <ImageIcon className="w-3.5 h-3.5" />
+          {capture === 'busy' ? '輸出中…' : '截圖'}
+        </button>
         <button type="button" onClick={() => setResetToken(token => token + 1)} className="ui-icon-btn bg-white/90 shadow-sm" aria-label="重設視角" title="重設視角">
           <RotateCcw className="w-3.5 h-3.5" />
         </button>
       </div>
+      {capture === 'failed' && (
+        <div role="alert" className="absolute right-2 top-12 rounded-md bg-red-50 px-2 py-1 text-xs text-red-600 shadow-sm">
+          截圖失敗，請再試一次。
+        </div>
+      )}
       <div className="pointer-events-none absolute bottom-2 left-3 text-[11px] text-slate-500">
         拖曳旋轉・滾輪縮放・格線 1 m・人形高 170 cm
       </div>
@@ -169,11 +219,12 @@ export function TrussPreview3D({ config, className = '' }: TrussPreview3DProps) 
 interface Truss3DDialogProps {
   config: TrussStructureConfig;
   quantity?: number;
+  filename?: string;
   onClose: () => void;
 }
 
 /** One shared viewer for the Truss 工作台 list, so the page never holds a WebGL context per card. */
-export function Truss3DDialog({ config, quantity, onClose }: Truss3DDialogProps) {
+export function Truss3DDialog({ config, quantity, filename, onClose }: Truss3DDialogProps) {
   const closeButton = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -208,8 +259,56 @@ export function Truss3DDialog({ config, quantity, onClose }: Truss3DDialogProps)
             <X className="w-4 h-4" />
           </button>
         </div>
-        <TrussPreview3D config={config} className="aspect-[4/3] sm:aspect-[16/9] max-h-[78vh]" />
+        <TrussPreview3D config={config} filename={filename} className="aspect-[4/3] sm:aspect-[16/9] max-h-[78vh]" />
       </div>
     </div>
   );
+}
+
+/**
+ * Renders each structure's opening 3D view (16:9, same framing as the dialog) off-screen through one WebGL context
+ * and hands the PNGs over in order. Used by Truss 工作台's 全部 PNG.
+ */
+export async function captureTruss3DViews(
+  configs: TrussStructureConfig[],
+  onImage: (png: Blob, index: number) => void | Promise<void>,
+) {
+  const longEdge = window.matchMedia(TOUCH_POINTER_QUERY).matches ? TOUCH_SCREENSHOT_LONG_EDGE : SCREENSHOT_LONG_EDGE;
+  // <Canvas> registers the THREE elements itself; a bare root does not, and Truss 工作台 may have no <Canvas> yet.
+  extend(THREE);
+  const root = createRoot(document.createElement('canvas'));
+  const captureRef: MutableRefObject<SceneCapture | null> = { current: null };
+  root.configure({
+    frameloop: 'demand',
+    size: { width: 1280, height: 720, top: 0, left: 0 },
+    dpr: 1,
+    camera: { fov: 40, position: [6, 4, 8] },
+    gl: { antialias: true, toneMapping: THREE.ACESFilmicToneMapping },
+  });
+  try {
+    // Executor-form promises: the client targets ES2022, and Promise.withResolvers is missing before iOS 17.4.
+    for (const [index, config] of configs.entries()) {
+      await new Promise<void>((resolve, reject) => {
+        const timer = window.setTimeout(() => reject(new Error('3D 畫面逾時')), 10000);
+        root.render(
+          <>
+            <TrussPreviewScene
+              config={config}
+              schematic={false}
+              resetToken={index}
+              onFramed={() => { window.clearTimeout(timer); resolve(); }}
+            />
+            <SceneCaptureBridge captureRef={captureRef} longEdge={longEdge} />
+          </>,
+        );
+      });
+      // Let one frame render so the contact shadow and the scale figure follow the new structure.
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const capture = captureRef.current;
+      if (!capture) throw new Error('3D 畫面尚未就緒');
+      await onImage(await capture(), index);
+    }
+  } finally {
+    root.unmount();
+  }
 }
