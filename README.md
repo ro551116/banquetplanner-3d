@@ -19,14 +19,15 @@ View your app in AI Studio: https://ai.studio/apps/drive/1R4ZS6M-80WYhXhMs7fJ-0D
 
 ## Semi-realistic 3D preview
 
-- Edit mode keeps direct object manipulation and the floor grid. View mode adds contact occlusion, ACES tone mapping and clean screenshot output.
-- Day/night lighting uses a locally generated reflection environment; no remote HDR or model downloads are required. Floors and fabrics use small procedural relief textures.
+- Edit mode keeps direct object manipulation and the floor grid. View mode adds ambient occlusion (full resolution on desktops, half resolution on touch devices), ACES tone mapping and SMAA anti-aliasing.
+- 截圖 renders the current view once more at 3840 px on the long edge (2560 px on touch devices) through the same post-processing, then restores the screen resolution. Labels are HTML overlays and are not part of the image.
+- Day/night lighting uses a locally generated reflection environment; no remote HDR or model downloads are required. Floors and fabrics use small procedural relief textures with anisotropic filtering.
 - Halls are a width × length rectangle or an irregular outline (L shapes, cut corners, octagons, stage alcoves, any polygon). Walls follow every outline edge with mitred corners; walls whose outside faces the camera cut away automatically; indoor views retain the walls. Hidden walls do not intercept picking.
 - Overview, top and side views fit the hall and viewport. Stage view uses the stage's position, dimensions and rotation; an empty hall falls back to an overview.
 - Dragging or zooming takes over the camera immediately. Clicking a view preset again restores that framing. Labels are hidden by default in View and can be toggled in the toolbar.
 - Existing scene data, object dimensions/colors, API formats and truss engineering calculations are unchanged. Presentation preferences are not saved into scene data.
 
-Lighting is a visual approximation, not a photometric simulation. Fixture spotlights and rectangular panel lights illuminate scene surfaces without per-fixture shadows; occluders may not block their light. The main scene light retains shadows. Instanced chairs, merged truss/lens geometry, a capped pixel ratio and half-resolution view-mode occlusion limit rendering cost.
+Lighting is a visual approximation, not a photometric simulation. Fixture spotlights and rectangular panel lights illuminate scene surfaces without per-fixture shadows; occluders may not block their light. The main scene light retains shadows. Instanced chairs, merged truss/lens geometry and a capped pixel ratio limit rendering cost; touch devices also keep the cheaper half-resolution occlusion.
 
 ### Equipment model library
 

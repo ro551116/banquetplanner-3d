@@ -6,7 +6,7 @@ import { TABLE_CLOTH_MATERIALS } from '../../constants';
 import { RenderSettingsContext } from '../RenderSettings';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { createTubeGeometry } from './details';
+import { createTubeGeometry, TEXTURE_ANISOTROPY } from './details';
 
 /**
  * Selection outline of the parent mesh. The 2% enlargement is about the mesh origin, so meshes whose
@@ -80,7 +80,7 @@ export function useTextTexture(text: string, { width = 256, height = 128, backgr
     lines.forEach((line, index) => context.fillText(line, width / 2, height / 2 + (index - (lines.length - 1) / 2) * size * 1.18));
     const result = new THREE.CanvasTexture(canvas);
     result.colorSpace = THREE.SRGBColorSpace;
-    result.anisotropy = 4;
+    result.anisotropy = TEXTURE_ANISOTROPY;
     return result;
   }, [text, width, height, background, color, fontSize, fontWeight]);
   useEffect(() => () => texture.dispose(), [texture]);
@@ -282,6 +282,7 @@ function getFabricRelief() {
   fabricRelief.magFilter = THREE.LinearFilter;
   fabricRelief.minFilter = THREE.LinearMipmapLinearFilter;
   fabricRelief.generateMipmaps = true;
+  fabricRelief.anisotropy = TEXTURE_ANISOTROPY;
   fabricRelief.needsUpdate = true;
   return fabricRelief;
 }

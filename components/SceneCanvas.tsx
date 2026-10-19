@@ -1,5 +1,5 @@
-import React, { useMemo, useRef } from 'react';
-import { Canvas, type ThreeEvent } from '@react-three/fiber';
+import React, { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber';
 import {
   OrbitControls, Grid, PerspectiveCamera,
   Line, GizmoHelper, GizmoViewport
@@ -11,13 +11,52 @@ import { ObjectWrapper } from './ObjectWrapper';
 import { SceneEnvironment } from './SceneEnvironment';
 import { RenderSettingsContext } from './RenderSettings';
 import { EffectComposer, N8AO, ToneMapping } from '@react-three/postprocessing';
-import { ToneMappingMode } from 'postprocessing';
+import { SMAAEffect, SMAAPreset, ToneMappingMode, type EffectComposer as EffectComposerImpl } from 'postprocessing';
 import { DirectManipulation } from './DirectManipulation';
 import { PlacementPreview } from './PlacementPreview';
 import { PathPlacement } from './PathPlacement';
 import { EditTool, EditorSession } from '../interaction';
 import { getHallBounds } from '../planning';
+import { SceneCaptureBridge, SCREENSHOT_LONG_EDGE, TOUCH_SCREENSHOT_LONG_EDGE, type SceneCapture } from './SceneCapture';
+import { TOUCH_POINTER_QUERY, useMediaQuery } from './ui/useMediaQuery';
 
+/**
+ * SMAA after tone mapping: N8AO composites onto a resolved image, so hardware MSAA no longer reaches the final edges.
+ * The effect decodes its lookup images asynchronously; on-demand rendering needs one more frame once they are in.
+ */
+function PreviewAntialiasing() {
+  const invalidate = useThree(state => state.invalidate);
+  const effect = useMemo(() => new SMAAEffect({ preset: SMAAPreset.HIGH }), []);
+  useEffect(() => {
+    // postprocessing's typings declare only `change`; SMAAEffect also dispatches `load`.
+    const events = effect as unknown as THREE.EventDispatcher<{ load: object }>;
+    const onLoad = () => invalidate();
+    events.addEventListener('load', onLoad);
+    invalidate(); // the images may already have loaded before this subscription
+    return () => events.removeEventListener('load', onLoad);
+  }, [effect, invalidate]);
+  return <primitive object={effect} />;
+}
+
+/**
+ * VIEW-mode post-processing. @react-three/postprocessing 2.16 never disposes its composer, so each EDIT→VIEW round
+ * trip left the composer buffers and N8AO targets behind. This layout cleanup runs before the composer's own, which
+ * detaches the passes, so `dispose()` still reaches every pass and, through the effect passes, every effect.
+ */
+function PreviewEffects({ touch, composerRef }: { touch: boolean; composerRef: React.RefObject<EffectComposerImpl> }) {
+  useLayoutEffect(() => {
+    const composer = composerRef.current;
+    return () => composer?.dispose();
+  }, [composerRef]);
+  return (
+    <EffectComposer ref={composerRef} multisampling={0} disableNormalPass>
+      {/* Desktops get full-resolution 64-sample AO; touch devices keep the cheap half-resolution pass. */}
+      <N8AO halfRes={touch} quality={touch ? 'performance' : 'high'} aoRadius={0.6} distanceFalloff={1} intensity={touch ? 1.4 : 3} />
+      <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+      <PreviewAntialiasing />
+    </EffectComposer>
+  );
+}
 
 interface SceneCanvasProps {
   mode: 'EDIT' | 'VIEW';
@@ -48,6 +87,8 @@ interface SceneCanvasProps {
   pathDrawing: React.ComponentProps<typeof PathPlacement> | null;
   handleBatchUpdate: (updates: Record<string, Partial<BanquetObject>>) => void;
   objectRefs: React.MutableRefObject<Record<string, THREE.Group | null>>;
+  /** Receives the screenshot function while the canvas is mounted. */
+  captureRef: React.MutableRefObject<SceneCapture | null>;
 }
 
 export const SceneCanvas: React.FC<SceneCanvasProps> = ({
@@ -56,10 +97,12 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
   isDrawMode, drawingColor, drawings, currentPath,
   startPath, extendPath, finishPath,
   tool, snapStep, sessionRef, pendingPlacement, onPlace, onCancel, pathDrawing,
-  handleBatchUpdate, objectRefs
+  handleBatchUpdate, objectRefs, captureRef
 }) => {
   const night = mode === 'VIEW' && viewEnvironment === 'night';
   const renderSettings = useMemo(() => ({ night, showLabels: mode === 'EDIT' || showLabels }), [night, mode, showLabels]);
+  const touch = useMediaQuery(TOUCH_POINTER_QUERY);
+  const composerRef = useRef<EffectComposerImpl>(null);
   const floorDown = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   // The grid covers the hall's bounding box but stays on whole-meter lines (5 m sections) so it matches snapping.
   const bounds = getHallBounds(hall);
@@ -123,6 +166,7 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
       <RenderSettingsContext.Provider value={renderSettings}>
       <PerspectiveCamera makeDefault position={[10, 10, 10]} fov={45} />
       <CameraRig viewIndex={viewIndex} viewRequest={viewRequest} hall={hall} objects={objects} />
+      <SceneCaptureBridge captureRef={captureRef} composerRef={composerRef} longEdge={touch ? TOUCH_SCREENSHOT_LONG_EDGE : SCREENSHOT_LONG_EDGE} />
       <SceneEnvironment
         hall={hall}
         night={night}
@@ -168,12 +212,7 @@ export const SceneCanvas: React.FC<SceneCanvasProps> = ({
       {drawings?.map((d) => (d?.points?.length > 1 ? (<Line key={d.id} points={d.points.map(p => [p.x, p.y + 0.02, p.z])} color={d.color} lineWidth={3} raycast={() => null} />) : null))}
       {currentPath.length > 1 && (<Line points={currentPath.map(p => [p.x, p.y + 0.02, p.z])} color={drawingColor} lineWidth={3} raycast={() => null} />)}
 
-      {mode === 'VIEW' && (
-        <EffectComposer multisampling={2} disableNormalPass>
-          <N8AO halfRes quality="performance" aoRadius={0.6} distanceFalloff={1} intensity={1.4} />
-          <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-        </EffectComposer>
-      )}
+      {mode === 'VIEW' && <PreviewEffects touch={touch} composerRef={composerRef} />}
       <OrbitControls makeDefault enabled={!isDrawMode && !isDragging} minDistance={0.5} maxDistance={Math.max(bounds.width, bounds.length, hall.height) * 8} maxPolarAngle={Math.PI / 2 - 0.015} enableDamping={mode === 'VIEW'} dampingFactor={0.12} />
       </RenderSettingsContext.Provider>
     </Canvas>

@@ -326,25 +326,6 @@ export function useSceneIO({
     }
   }, [setHall, setObjects, setDrawings, setSelectedIds, setIsDrawMode, setMode, onNotice]);
 
-  // --- Screenshot ---
-  const takeScreenshot = useCallback(() => {
-    const canvas = document.querySelector('canvas');
-    if (canvas) {
-      try {
-        const dataURL = canvas.toDataURL('image/png');
-        const link = document.createElement('a');
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        link.setAttribute('download', `banquet-view-${timestamp}.png`);
-        link.setAttribute('href', dataURL);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      } catch (err) {
-        console.error('Screenshot failed:', err);
-      }
-    }
-  }, []);
-
   // Refresh the list thumbnail only when the scene has none yet or was edited during this visit.
   const shouldRefreshThumbnail = useCallback(
     () => !loadedThumbnailRef.current || latestRevisionRef.current > 0,
@@ -364,7 +345,6 @@ export function useSceneIO({
     exportScene,
     handleImportClick,
     handleFileChange,
-    takeScreenshot,
     shouldRefreshThumbnail,
   };
 }

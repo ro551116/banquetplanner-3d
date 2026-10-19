@@ -5,6 +5,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { HallConfig, PathPoint } from '../types';
 import { getHallOutline, getOutlineBounds, getWallSegments, signedArea, WallSegment } from '../planning';
 import { cleanPolyline, offsetPolyline, prismGeometry, wallBands } from './models/wallGeometry';
+import { TEXTURE_ANISOTROPY } from './models/details';
 
 // Generated locally: the viewport and exported images do not depend on an HDR CDN.
 function StudioReflections({ night }: { night: boolean }) {
@@ -60,6 +61,7 @@ function stoneRelief() {
   texture.magFilter = THREE.LinearFilter;
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.generateMipmaps = true;
+  texture.anisotropy = TEXTURE_ANISOTROPY;
   texture.needsUpdate = true;
   return texture;
 }

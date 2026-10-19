@@ -2,6 +2,7 @@ import React, { useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { ObjectType } from '../../types';
 import { Highlight, TableClothMaterial, TripodBase } from './shared';
+import { TEXTURE_ANISOTROPY } from './details';
 
 export interface VenueProps {
   type: ObjectType;
@@ -57,6 +58,7 @@ function getDanceFloorTexture(): THREE.DataTexture {
   danceFloorTexture.magFilter = THREE.LinearFilter;
   danceFloorTexture.minFilter = THREE.LinearMipmapLinearFilter;
   danceFloorTexture.generateMipmaps = true;
+  danceFloorTexture.anisotropy = TEXTURE_ANISOTROPY;
   danceFloorTexture.needsUpdate = true;
   return danceFloorTexture;
 }
@@ -86,6 +88,7 @@ function getLedModuleTexture(): THREE.DataTexture {
   ledModuleTexture.magFilter = THREE.LinearFilter;
   ledModuleTexture.minFilter = THREE.LinearMipmapLinearFilter;
   ledModuleTexture.generateMipmaps = true;
+  ledModuleTexture.anisotropy = TEXTURE_ANISOTROPY;
   ledModuleTexture.needsUpdate = true;
   return ledModuleTexture;
 }

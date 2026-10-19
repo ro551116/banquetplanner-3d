@@ -2,6 +2,8 @@ import { useCallback, useSyncExternalStore } from 'react';
 
 /** Side panels dock from this width; below it they become bottom sheets. Keep in sync with the `lg:` breakpoint. */
 export const DOCKED_PANELS_QUERY = '(min-width: 1024px)';
+/** Touch-first devices; matches the Tailwind `coarse:` variant. */
+export const TOUCH_POINTER_QUERY = '(pointer: coarse)';
 
 export function useMediaQuery(query: string): boolean {
   const subscribe = useCallback((onChange: () => void) => {

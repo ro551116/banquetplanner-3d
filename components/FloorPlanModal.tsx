@@ -18,7 +18,7 @@ export interface FloorPlanModalProps {
 /** Longest canvas edge for PNG export; browsers refuse bigger canvases. */
 const MAX_PNG_EDGE = 8192;
 
-const downloadBlob = (blob: Blob, filename: string) => {
+export const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

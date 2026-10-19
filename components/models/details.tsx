@@ -4,6 +4,9 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 
 type Point = [number, number, number];
 
+/** Anisotropic filtering for tiling textures seen at grazing angles; three clamps it to the GPU maximum. */
+export const TEXTURE_ANISOTROPY = 8;
+
 interface SoftBoxProps {
   size: Point;
   position?: Point;
@@ -57,6 +60,7 @@ const grilleTexture = (() => {
   texture.magFilter = THREE.LinearFilter;
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.generateMipmaps = true;
+  texture.anisotropy = TEXTURE_ANISOTROPY;
   texture.needsUpdate = true;
   return texture;
 })();

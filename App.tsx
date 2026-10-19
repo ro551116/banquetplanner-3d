@@ -22,7 +22,8 @@ import { AddObjectPanel } from './components/AddObjectPanel';
 import { getObjectLabel } from './components/objectTypeMeta';
 import { TrussBuilderModal } from './components/TrussBuilderModal';
 import { TrussSheetModal } from './components/TrussSheetModal';
-import { FloorPlanModal } from './components/FloorPlanModal';
+import { FloorPlanModal, downloadBlob } from './components/FloorPlanModal';
+import type { SceneCapture } from './components/SceneCapture';
 import { TrussStudio } from './components/TrussStudio';
 import { EditorControls } from './components/EditorControls';
 import { EditTool, EditorSession } from './interaction';
@@ -79,6 +80,18 @@ export default function App() {
   }, [toast]);
 
   const objectRefs = useRef<Record<string, THREE.Group | null>>({});
+  const sceneCaptureRef = useRef<SceneCapture | null>(null);
+  const takeScreenshot = useCallback(async () => {
+    const capture = sceneCaptureRef.current;
+    if (!capture) return;
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      downloadBlob(await capture(), `banquet-view-${timestamp}.png`);
+    } catch (error) {
+      console.error('Screenshot failed:', error);
+      showNotice('截圖失敗，請再試一次。', true);
+    }
+  }, [showNotice]);
 
   const {
     objects, setObjects, resetObjects, updateObject, deleteObject,
@@ -554,7 +567,7 @@ export default function App() {
         setViewEnvironment={setViewEnvironment}
         showLabels={showLabels}
         setShowLabels={setShowLabels}
-        takeScreenshot={sceneIO.takeScreenshot}
+        takeScreenshot={takeScreenshot}
         panelOpen={panelOpen}
         setPanelOpen={open => { setPanelOpen(open); if (open && !docked) setAddPanelOpen(false); }}
         addPanelOpen={addPanelOpen}
@@ -614,6 +627,7 @@ export default function App() {
             pathDrawing={pathDrawing}
             handleBatchUpdate={handleBatchUpdate}
             objectRefs={objectRefs}
+            captureRef={sceneCaptureRef}
           />
           {mode === 'EDIT' && !drawing.isDrawMode && (
               <EditorControls
@@ -632,7 +646,7 @@ export default function App() {
               />
           )}
           {mode === 'VIEW' && !drawing.isDrawMode && <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 w-max lg:hidden bg-slate-900/90 backdrop-blur-sm ring-1 ring-white/10 rounded-xl shadow-lg p-2">
-            <ViewControls viewIndex={viewIndex} setViewIndex={index => { setViewIndex(index); setViewRequest(request => request + 1); }} viewEnvironment={viewEnvironment} setViewEnvironment={setViewEnvironment} showLabels={showLabels} setShowLabels={setShowLabels} takeScreenshot={sceneIO.takeScreenshot} />
+            <ViewControls viewIndex={viewIndex} setViewIndex={index => { setViewIndex(index); setViewRequest(request => request + 1); }} viewEnvironment={viewEnvironment} setViewEnvironment={setViewEnvironment} showLabels={showLabels} setShowLabels={setShowLabels} takeScreenshot={takeScreenshot} />
           </div>}
           {drawing.isDrawMode && <div className={`absolute bottom-3 left-1/2 -translate-x-1/2 z-20 w-max xl:hidden rounded-xl shadow-lg ring-1 p-2 ${mode === 'VIEW' ? 'bg-slate-900/90 backdrop-blur-sm ring-white/10' : 'bg-white ring-slate-200'}`}>
             <DrawingControls drawingColor={drawing.drawingColor} setDrawingColor={drawing.setDrawingColor} clearDrawings={drawing.clearDrawings} dark={mode === 'VIEW'} />
