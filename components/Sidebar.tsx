@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronDown, MousePointer2 } from 'lucide-react';
 import type { BanquetObject, HallConfig } from '../types';
+import type { LoadedHallPreset } from '../services/hallPresetsApi';
 import { THEMES } from '../constants';
 import type { Theme } from '../constants';
 import { ObjectListPanel } from './ObjectListPanel';
 import { HallShapeEditor } from './HallShapeEditor';
+import { HallPresetPanel } from './HallPresetPanel';
 import { BottomSheet } from './ui/BottomSheet';
 import { DOCKED_PANELS_QUERY, useMediaQuery } from './ui/useMediaQuery';
 
@@ -20,10 +22,12 @@ interface SidebarProps {
   setPanelOpen: (v: boolean) => void;
   /** Starts drawing the hall outline on the floor. */
   onDrawOutline: () => void;
+  onApplyHallPreset: (preset: LoadedHallPreset) => void;
+  onNotice: (message: string, error?: boolean) => void;
   children: React.ReactNode;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ mode, hall, setHall, objects, selectedIds, setSelectedIds, deleteObject, panelOpen, setPanelOpen, onDrawOutline, children }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ mode, hall, setHall, objects, selectedIds, setSelectedIds, deleteObject, panelOpen, setPanelOpen, onDrawOutline, onApplyHallPreset, onNotice, children }) => {
   const docked = useMediaQuery(DOCKED_PANELS_QUERY);
   const hasSelection = selectedIds.size > 0;
   const [hallExpanded, setHallExpanded] = useState(!hasSelection);
@@ -49,6 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mode, hall, setHall, objects, 
           場地設定<ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${hallExpanded ? '' : '-rotate-90'}`} />
         </button>
         {hallExpanded && <div className="space-y-6">
+          <HallPresetPanel hall={hall} objects={objects} onApply={onApplyHallPreset} onNotice={onNotice} />
           <HallShapeEditor hall={hall} setHall={setHall} onDrawOutline={onDrawOutline} />
           <section className="space-y-3">
             <h3 className="ui-section-title">主題</h3>

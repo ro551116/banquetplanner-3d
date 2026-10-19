@@ -9,7 +9,7 @@ npm run dev        # Start dev server on port 3000
 npm run dev:server # Scene API + built dist on port 3001 (PORT, DATA_DIR)
 npm run build      # Production build to /dist
 npm run typecheck  # tsc --noEmit
-npm test           # node:test via tsx (trussConfig, sceneData, planning, floorPlan)
+npm test           # node:test via tsx (trussConfig, sceneData, planning, floorPlan, hallPresets)
 ```
 
 No linter or formatter is configured.
@@ -71,6 +71,7 @@ Core types in `types.ts`:
 | `components/TopToolbar.tsx` / `EditorControls.tsx` / `StatusBar.tsx` | Editor chrome, contextual floating bar, status row |
 | `components/AdvancedAddModal.tsx` | 批次新增 (quick counts / table grid) |
 | `constants.ts` | Theme presets, initial hall config, default values |
+| `hallPresets.ts` / `components/HallPresetPanel.tsx` | Hall presets (廳房): build/apply rules (pure), 場地設定 panel; API client `services/hallPresetsApi.ts` |
 
 ### Persistence
 
@@ -80,6 +81,7 @@ Core types in `types.ts`:
 - `EditorErrorBoundary` keeps a render error inside the editor body with reload/back actions.
 - Leaving the editor stores a 480×270 list thumbnail when the scene has none or was edited (thumbnail-only PUTs do not touch `updated_at`)
 - The canvas renders on demand (`frameloop="demand"`). Code that mutates three objects outside React must call `invalidate()`.
+- Hall presets (廳房) live in `DATA_DIR/hall-presets/<id>.json`: a hall without `planInfo` plus DOOR/COLUMN/WALL objects. The server normalizes both with `normalizeSceneData` and rejects other object types. Applying a preset replaces the hall (keeping the scene's `planInfo`, with `venue` set to the preset title). A preset that has structures replaces the scene's structures under new ids; a preset without them leaves the scene's in place. Scenes created from a preset start without the default stage and speakers. The server imports root modules and `services/` at runtime, so the Dockerfile runtime stage copies `*.ts` from the root and `services/`.
 
 ### Environment Variables
 
@@ -94,3 +96,4 @@ Core types in `types.ts`:
 - The renderer is not reachable from page scripts. To check GPU leaks in a browser, add an init script that wraps `WebGLRenderingContext`/`WebGL2RenderingContext` `createBuffer`/`deleteBuffer` (and textures) into live counters, reload, then cycle a dimension field between two values: the count at the starting value must return to its earlier level. Rect tablecloths are cached per distinct size in `cloth.ts`, so the first visit to a new width adds one entry by design.
 - GPU frame cost: headless Chromium on the MacBook exposes `EXT_disjoint_timer_query_webgl2`. Wrap `requestAnimationFrame` from an init script and bracket each callback that issues draw calls with a `TIME_ELAPSED` query; `gl.finish()` timing does not include GPU work. On 2026-10-19 (1800×1065 canvas, 30-object wedding scene with 20 tables, orbit drag) the full-resolution AO + SMAA pipeline measured about 6 ms median / 10 ms p95 GPU per frame against 5 ms / 7.5 ms before.
 - Each EDIT→VIEW switch builds a new composer, and `@react-three/postprocessing` 2.16 disposes neither it nor its passes on unmount. `PreviewEffects` in `SceneCanvas.tsx` disposes the whole composer in a layout cleanup, which runs before the composer's own cleanup detaches the passes. Leaving VIEW now frees every texture, framebuffer and program it created. Still open: drei 9.96 `GizmoViewport` never disposes its six 64×64 axis-label `CanvasTexture`s, so each EDIT session leaves about 96 KB behind. To attribute leaks, tag each `createTexture` with an epoch and record the size from `texStorage2D`/`texImage2D`; textures still alive from a finished mode session are leaks.
+- `<React.StrictMode>` in `index.tsx` does not reach the canvas: R3F 8 creates its root with `isStrictMode = false`, so effects inside `<Canvas>` run once even under `npm run dev`. Preview was verified there on 2026-10-19. R3F 9 inherits StrictMode, so its simulated unmount would run `PreviewEffects`' `composer.dispose()`, and the remount would not add back the `RenderPass` created in the composer's `useMemo`. Before upgrading, make that cleanup dispose the passes and buffers without emptying `composer.passes`.

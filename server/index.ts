@@ -5,7 +5,9 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { renderTrussDiagramSvg } from './renderDiagram';
 import { TRUSS_SEGMENT_LENGTHS } from '../trussConfig';
-import type { BanquetObject, TrussStructureConfig, TrussStructureKind } from '../types';
+import { HALL_STRUCTURE_TYPES } from '../hallPresets';
+import { normalizeSceneData } from '../services/sceneData';
+import type { BanquetObject, HallConfig, TrussStructureConfig, TrussStructureKind } from '../types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -13,10 +15,12 @@ const PORT = parseInt(process.env.PORT || '3001');
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../data');
 const SCENES_DIR = path.join(DATA_DIR, 'scenes');
 const TRUSS_STUDIO_FILE = path.join(DATA_DIR, 'truss-studio.json');
+const HALL_PRESETS_DIR = path.join(DATA_DIR, 'hall-presets');
 
 // Ensure data directory exists
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(SCENES_DIR, { recursive: true });
+fs.mkdirSync(HALL_PRESETS_DIR, { recursive: true });
 
 interface SceneFile {
   id: string;
@@ -25,6 +29,26 @@ interface SceneFile {
   thumbnail?: string;
   created_at: string;
   updated_at: string;
+}
+
+/** A venue's hall (廳房) with its doors, columns and partition walls, reused across scenes. */
+interface HallPresetFile {
+  id: string;
+  name: string;
+  venue?: string;
+  /** Without `planInfo`: the floor-plan title block belongs to each event. */
+  hall: HallConfig;
+  objects: BanquetObject[];
+  created_at: string;
+  updated_at: string;
+}
+
+interface HallPresetFields {
+  name?: string;
+  /** `null` removes the venue. */
+  venue?: string | null;
+  hall?: HallConfig;
+  objects?: BanquetObject[];
 }
 
 interface TrussStudioEntry {
@@ -222,6 +246,50 @@ function readScene(id: string): SceneFile | null {
 
 function writeScene(scene: SceneFile) {
   fs.writeFileSync(path.join(SCENES_DIR, `${scene.id}.json`), JSON.stringify(scene));
+}
+
+function readHallPreset(id: string): HallPresetFile | null {
+  const filePath = path.join(HALL_PRESETS_DIR, `${id}.json`);
+  if (!fs.existsSync(filePath)) return null;
+  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+}
+
+function writeHallPreset(preset: HallPresetFile) {
+  fs.writeFileSync(path.join(HALL_PRESETS_DIR, `${preset.id}.json`), JSON.stringify(preset));
+}
+
+function hallPresetSummary(preset: HallPresetFile) {
+  return {
+    id: preset.id, name: preset.name, venue: preset.venue ?? null,
+    width: preset.hall.width, length: preset.hall.length, height: preset.hall.height,
+    structures: preset.objects.length, created_at: preset.created_at, updated_at: preset.updated_at,
+  };
+}
+
+/** Validates a hall preset body and normalizes hall and objects as the editor does when a scene loads. */
+function parseHallPresetFields(body: unknown, creating: boolean): { fields: HallPresetFields } | { error: string } {
+  if (!isRecord(body)) return { error: 'body must be an object' };
+  const fields: HallPresetFields = {};
+  if (creating || body.name !== undefined) {
+    if (typeof body.name !== 'string' || !body.name.trim()) return { error: 'name is required' };
+    fields.name = body.name.trim();
+  }
+  if (body.venue !== undefined) {
+    if (body.venue !== null && typeof body.venue !== 'string') return { error: 'venue must be a string' };
+    fields.venue = typeof body.venue === 'string' && body.venue.trim() ? body.venue.trim() : null;
+  }
+  if ((creating || body.hall !== undefined) && !isRecord(body.hall)) return { error: 'hall must be an object' };
+  if (body.objects !== undefined && !Array.isArray(body.objects)) return { error: 'objects must be an array' };
+  const data = normalizeSceneData({ hall: body.hall, objects: body.objects ?? [] });
+  if (body.hall !== undefined) {
+    const { planInfo: _eventTitleBlock, ...hall } = data.hall;
+    fields.hall = hall;
+  }
+  if (creating || body.objects !== undefined) {
+    if (data.objects.some(object => !HALL_STRUCTURE_TYPES[object.type])) return { error: 'objects may only be DOOR, COLUMN or WALL' };
+    fields.objects = data.objects;
+  }
+  return { fields };
 }
 
 function readTrussStudio(): TrussStudioFile {
@@ -547,10 +615,10 @@ app.get('/api/scenes', (_req, res) => {
   }
 });
 
-const SCENE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 app.use('/api/scenes/:id', (req, res, next) => {
-  if (!SCENE_ID_REGEX.test(req.params.id)) {
+  if (!UUID_REGEX.test(req.params.id)) {
     return sendBadRequest(res, 'invalid scene id');
   }
   next();
@@ -666,6 +734,73 @@ app.delete('/api/scenes/:id/objects/:objectId', (req, res) => {
     console.error('Delete scene object error:', err);
     res.status(500).json({ error: 'Failed to delete scene object' });
   }
+});
+
+// Hall presets (廳房)
+app.get('/api/hall-presets', (_req, res) => {
+  try {
+    const presets = fs.readdirSync(HALL_PRESETS_DIR).filter(f => f.endsWith('.json'))
+      .map(f => hallPresetSummary(JSON.parse(fs.readFileSync(path.join(HALL_PRESETS_DIR, f), 'utf-8'))));
+    presets.sort((a, b) => (a.venue ?? '').localeCompare(b.venue ?? '', 'zh-Hant') || a.name.localeCompare(b.name, 'zh-Hant'));
+    res.json(presets);
+  } catch (err) {
+    console.error('List hall presets error:', err);
+    res.status(500).json({ error: 'Failed to list hall presets' });
+  }
+});
+
+app.use('/api/hall-presets/:id', (req, res, next) => {
+  if (!UUID_REGEX.test(req.params.id)) return sendBadRequest(res, 'invalid hall preset id');
+  next();
+});
+
+app.get('/api/hall-presets/:id', (req, res) => {
+  const preset = readHallPreset(req.params.id);
+  if (!preset) return sendNotFound(res);
+  res.json(preset);
+});
+
+app.post('/api/hall-presets', (req, res) => {
+  try {
+    const parsed = parseHallPresetFields(req.body, true);
+    if ('error' in parsed) return sendBadRequest(res, parsed.error);
+    const { name, venue, hall, objects } = parsed.fields;
+    const now = new Date().toISOString();
+    const preset: HallPresetFile = { id: crypto.randomUUID(), name, ...(venue ? { venue } : {}), hall, objects, created_at: now, updated_at: now };
+    writeHallPreset(preset);
+    res.status(201).json(hallPresetSummary(preset));
+  } catch (err) {
+    console.error('Create hall preset error:', err);
+    res.status(500).json({ error: 'Failed to create hall preset' });
+  }
+});
+
+app.put('/api/hall-presets/:id', (req, res) => {
+  try {
+    const preset = readHallPreset(req.params.id);
+    if (!preset) return sendNotFound(res);
+    const parsed = parseHallPresetFields(req.body, false);
+    if ('error' in parsed) return sendBadRequest(res, parsed.error);
+    const { name, venue, hall, objects } = parsed.fields;
+    if (name !== undefined) preset.name = name;
+    if (venue === null) delete preset.venue;
+    else if (venue !== undefined) preset.venue = venue;
+    if (hall) preset.hall = hall;
+    if (objects) preset.objects = objects;
+    preset.updated_at = new Date().toISOString();
+    writeHallPreset(preset);
+    res.json(hallPresetSummary(preset));
+  } catch (err) {
+    console.error('Update hall preset error:', err);
+    res.status(500).json({ error: 'Failed to update hall preset' });
+  }
+});
+
+app.delete('/api/hall-presets/:id', (req, res) => {
+  const filePath = path.join(HALL_PRESETS_DIR, `${req.params.id}.json`);
+  if (!fs.existsSync(filePath)) return sendNotFound(res);
+  fs.unlinkSync(filePath);
+  res.json({ deleted: true });
 });
 
 // --- Static files (production) ---

@@ -178,6 +178,83 @@ Response:
 { "deleted": true, "updated_at": "2026-06-12T10:12:00.000Z" }
 ```
 
+## Hall Presets API（廳房）
+
+廳房是某個場地的一個廳：`hall`（尺寸、外框、牆面與地板的顏色和材質；不含平面圖標題欄 `planInfo`）加上固定結構 `DOOR`、`COLUMN`、`WALL`。每個廳房存成 `DATA_DIR/hall-presets/<id>.json`。server 用前端載入場景的同一套規則（`services/sceneData.ts`）正規化 `hall` 與 `objects`：尺寸限制在 1–200 m、修正外框、丟掉格式錯誤的物件；`objects` 只能是門、柱子、隔間牆，其他類型回 400。
+
+### 列出廳房
+
+```bash
+curl "$BASE/api/hall-presets"
+```
+
+Response（沒有地點的排最前，其餘依地點、廳名排序）：
+
+```json
+[
+  {
+    "id": "preset-id",
+    "name": "3F Ballroom II",
+    "venue": "芙洛麗",
+    "width": 16,
+    "length": 35,
+    "height": 5,
+    "structures": 2,
+    "created_at": "2026-10-19T10:00:00.000Z",
+    "updated_at": "2026-10-19T10:00:00.000Z"
+  }
+]
+```
+
+### 取得單一廳房
+
+```bash
+curl "$BASE/api/hall-presets/preset-id"
+```
+
+回傳完整的 `{ id, name, venue?, hall, objects, created_at, updated_at }`。
+
+### 建立廳房
+
+`name`、`hall` 必填；`venue`、`objects` 選填。回傳 201 與列表同格式的摘要。
+
+```bash
+curl -X POST "$BASE/api/hall-presets" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "3F Ballroom II",
+    "venue": "芙洛麗",
+    "hall": { "width": 16, "length": 35, "height": 5, "wallColor": "#f3ece4", "floorColor": "#a8423a" },
+    "objects": [
+      { "type": "COLUMN", "position": { "x": -4, "y": 0, "z": 2 }, "rotation": { "x": 0, "y": 0, "z": 0 }, "scale": { "x": 1, "y": 1, "z": 1 }, "color": "#e8e8e8", "customWidth": 0.6, "customDepth": 0.6, "customHeight": 5, "shape": "round" }
+    ]
+  }'
+```
+
+### 更新廳房
+
+`name`、`venue`、`hall`、`objects` 可單獨傳，傳了就整段取代；`"venue": null` 或空字串會移除地點。
+
+```bash
+curl -X PUT "$BASE/api/hall-presets/preset-id" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "Ballroom II", "venue": null }'
+```
+
+### 刪除廳房
+
+```bash
+curl -X DELETE "$BASE/api/hall-presets/preset-id"
+```
+
+Response：`{ "deleted": true }`。場景存的是廳房的複本，用它建立或套用過的場景不受影響。
+
+### 前端行為
+
+- 場地設定 → 廳房 →「儲存目前場地為廳房」：存目前的 `hall`，可選擇是否連門、柱子、隔間牆一起存；地點與廳名都相同時，確認後覆蓋原本那筆。
+- 套用：`hall` 換成廳房的；場景自己的 `planInfo` 保留，只把 `venue` 改成「地點 廳名」；廳房有存結構時，場景原本的門、柱子、隔間牆換成廳房的（使用新 id），沒存結構時保留場景原本的；其他物件不動。`hall` 不在復原紀錄裡，結構的替換可以復原。
+- 新增場景時可選廳房：新場景只有廳房的 `hall` 與結構，不加預設的舞台與喇叭。
+
 ## 場景 Data Schema
 
 ```ts

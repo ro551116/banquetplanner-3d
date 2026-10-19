@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, LayoutGrid, ArrowLeft } from 'lucide-react';
 import { scenesApi, SceneMeta } from '../services/scenesApi';
+import { hallPresetsApi, type HallPresetMeta } from '../services/hallPresetsApi';
+import { INITIAL_HALL } from '../constants';
+import { presetHallFor, withPresetStructures } from '../hallPresets';
+import { HallPresetOptions } from './HallPresetPanel';
 
 interface SceneManagerProps {
   onLoad: (sceneId: string) => void;
@@ -16,6 +20,8 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew, onBac
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
+  const [hallPresets, setHallPresets] = useState<HallPresetMeta[]>([]);
+  const [hallPresetId, setHallPresetId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -34,6 +40,11 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew, onBac
 
   useEffect(() => { fetchScenes(); }, []);
   useEffect(() => { if (creating) inputRef.current?.focus(); }, [creating]);
+  // Without saved halls (or when the list fails to load) the form stays the plain name field.
+  useEffect(() => {
+    if (creating) hallPresetsApi.list().then(setHallPresets, () => setHallPresets([]));
+  }, [creating]);
+  const closeCreate = () => { setCreating(false); setNewName(''); setHallPresetId(''); };
 
   const [submitting, setSubmitting] = useState(false);
   // A ref, not state: two clicks in the same frame both see `submitting === false` before React re-renders.
@@ -44,9 +55,13 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew, onBac
     submittingRef.current = true;
     setSubmitting(true);
     try {
-      const scene = await scenesApi.create(newName.trim());
-      setCreating(false);
-      setNewName('');
+      // A scene from a hall preset carries the venue's hall and structures, without the default stage and speakers.
+      const preset = hallPresetId ? await hallPresetsApi.load(hallPresetId) : null;
+      const scene = await scenesApi.create(newName.trim(), preset ? {
+        hall: presetHallFor(INITIAL_HALL, preset.hall, preset.title),
+        objects: withPresetStructures([], preset.objects, () => crypto.randomUUID()),
+      } : undefined);
+      closeCreate();
       onNew(scene.id);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '建立場景失敗，請稍後再試。');
@@ -99,10 +114,18 @@ export const SceneManager: React.FC<SceneManagerProps> = ({ onLoad, onNew, onBac
                     // Enter/Esc that confirm or dismiss an IME candidate must not create a half-typed scene.
                     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                     if (e.key === 'Enter') handleCreate();
-                    if (e.key === 'Escape') { setCreating(false); setNewName(''); }
+                    if (e.key === 'Escape') closeCreate();
                   }}
                   placeholder="輸入名稱…" className="ui-input" />
-                <div className="flex gap-2"><button onClick={handleCreate} disabled={submitting} className="ui-btn-primary flex-1">{submitting ? '建立中…' : '建立'}</button><button onClick={() => { setCreating(false); setNewName(''); }} className="ui-btn-ghost">取消</button></div>
+                {hallPresets.length > 0 && <>
+                  <label htmlFor="new-scene-hall" className="ui-label">廳房</label>
+                  <select id="new-scene-hall" value={hallPresetId} onChange={e => setHallPresetId(e.target.value)} className="ui-input">
+                    <option value="">空白場地（預設舞台與喇叭）</option>
+                    <HallPresetOptions presets={hallPresets} />
+                  </select>
+                  {hallPresetId && <p className="text-xs text-slate-500">帶入廳房的尺寸、外框、材質與門／柱子／隔間牆，不含預設舞台與喇叭。</p>}
+                </>}
+                <div className="flex gap-2"><button onClick={handleCreate} disabled={submitting} className="ui-btn-primary flex-1">{submitting ? '建立中…' : '建立'}</button><button onClick={closeCreate} className="ui-btn-ghost">取消</button></div>
               </div>
             ) : (
               <button onClick={() => setCreating(true)} className="new-entity-card flex h-full min-h-[120px] sm:min-h-[200px] w-full flex-col items-center justify-center gap-3 p-6">

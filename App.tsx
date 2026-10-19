@@ -4,6 +4,8 @@ import { BanquetObject, DeviceSystem, LightMount, ObjectType, PathPoint, TrussSt
 import { createObjectConfig, INITIAL_HALL, withLightMount } from './constants';
 import { cloneTrussConfig, getTrussDimensions } from './trussConfig';
 import { CLOSABLE_PATH_TYPES, DEVICE_SYSTEMS, findTableUnder, getTableTop, getTrussBeams, isOnTable, isPathType, MIN_OUTLINE_POINTS, nextDeviceCode, pathVertexLimits, TRUSS_MOUNT_TYPES, trussMountPose, TrussMountPose, withOutline } from './planning';
+import { presetHallFor, withPresetStructures } from './hallPresets';
+import type { LoadedHallPreset } from './services/hallPresetsApi';
 import { useObjects } from './hooks/useObjects';
 import { useDrawing } from './hooks/useDrawing';
 import { useSceneIO, captureThumbnail } from './hooks/useSceneIO';
@@ -127,6 +129,13 @@ export default function App() {
     }
     return false;
   }, [pendingPlacement, drawingOutline, drawing.isDrawMode, drawing.currentPath.length, drawing.cancelPath, drawing.setIsDrawMode]);
+
+  // The hall itself has no undo history; replacing the structures does.
+  const applyHallPreset = useCallback((preset: LoadedHallPreset) => {
+    cancelEditing();
+    setHall(previous => presetHallFor(previous, preset.hall, preset.title));
+    setObjects(previous => withPresetStructures(previous, preset.objects, () => crypto.randomUUID()));
+  }, [cancelEditing, setObjects]);
 
   const sceneIO = useSceneIO({
     sceneId, hall, objects, drawings: drawing.drawings,
@@ -665,6 +674,8 @@ export default function App() {
           panelOpen={panelOpen}
           setPanelOpen={setPanelOpen}
           onDrawOutline={beginOutlineDrawing}
+          onApplyHallPreset={applyHallPreset}
+          onNotice={showNotice}
         >
           <PropertiesPanel
             selectedIds={selectedIds}
